@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Klinik Pintar - AUTO KLINIK
 // @namespace    klinikpintar-auto
-// @version      9.8.0
+// @version      9.9.0
 // @description  AUTO KLINIK untuk os.klinikpintar.id — ISPA Dewasa, Resume, Resep Manual, Paket Resep Golongan. Tidak pernah menekan Simpan otomatis.
 // @author       taufanmtknight-debug
 // @match        https://os.klinikpintar.id/*
@@ -34,7 +34,7 @@
 
   // Versi diambil dari header (GM_info) agar label launcher tidak pernah beda
   // dengan @version. Nilai cadangan WAJIB sama dengan @version (dicek oleh test).
-  const SCRIPT_VERSION_FALLBACK = "9.8.0";
+  const SCRIPT_VERSION_FALLBACK = "9.9.0";
   const VERSION =
     (typeof GM_info !== "undefined" && GM_info?.script?.version) ||
     SCRIPT_VERSION_FALLBACK;
@@ -1216,9 +1216,12 @@
   ];
 
   // Hasil: { key, keyword, others: [kunci lain yang juga cocok] } atau null.
-  function detectDiagnosisFromComplaint(rawText) {
+  // options.vitals = hasil assessVitals(): demam dari suhu (tier 4) dan TD tinggi
+  // (tier 2,5: di bawah keluhan akut & HT/DM tertulis, di atas pusing/pegal).
+  function detectDiagnosisFromComplaint(rawText, options = {}) {
     const lower = String(rawText || "").toLowerCase().replace(/\u00a0/g, " ");
-    if (!lower.trim()) return null;
+    const vit = options.vitals || null;
+    if (!lower.trim() && !vit?.fever && !vit?.hypertension) return null;
     const found = [];
     for (const d of DIAGNOSIS_FROM_COMPLAINT) {
       const re = new RegExp(d.pattern.source, "g");
@@ -1234,6 +1237,10 @@
         }
       }
     }
+    if (vit?.hypertension && !found.some((f) => f.key === "HT"))
+      found.push({ key: "HT", keyword: `TD ${vit.bp}`, tier: 2.5, pos: Infinity, order: found.length });
+    if (vit?.fever && !found.some((f) => f.key === "FEVER"))
+      found.push({ key: "FEVER", keyword: `suhu ${String(vit.temp).replace(".", ",")} °C`, tier: 4, pos: Infinity, order: found.length });
     if (!found.length) return null;
     // Tier kecil dulu; tier 2 (HT/DM) menurut posisi tulisan, tier lain menurut urutan daftar.
     found.sort((a, b) => a.tier - b.tier || (a.tier === 2 ? a.pos - b.pos : a.order - b.order));
@@ -1270,8 +1277,11 @@
   // getClientRects() kosong bila elemen ATAU salah satu induknya display:none.
   // Tanpa cek ini, modal racikan lama yang sudah ditutup (tetap ada di DOM,
   // induknya disembunyikan) dianggap terlihat dan ikut terisi.
+  // v9.9: hanya Element (dulu teks/dokumen bisa masuk -> "getComputedStyle:
+  // Argument 1 does not implement interface Element" di Firefox).
   const visible = (el) =>
     !!el &&
+    el.nodeType === 1 &&
     el.isConnected &&
     el.getClientRects().length > 0 &&
     getComputedStyle(el).display !== "none" &&
@@ -3552,6 +3562,7 @@
     await openOrReusePrescriptionForm();
     const alreadyInRecipe = [];
     const added = [];
+    const lowStock = [];
 
     for (let i = 0; i < medicines.length; i++) {
       const recipe = medicines[i];
@@ -3575,6 +3586,12 @@
       await selectTargetDrug(search, drug);
       await configureMedicationRow(drug);
       added.push(drug);
+      // v9.9: peringatan stok (resep tetap diisi; dokter yang memutuskan).
+      const row = medicationRowFor(drug);
+      const qtyInput = row && classifyRecipeInputs(row).total;
+      const stock = qtyInput && readStockNear(qtyInput);
+      if (stock != null && String(drug.total ?? "").trim() !== "" && Number(drug.total) > stock)
+        lowStock.push(`${drug.key.replace(/^BPJS -- /, "")} (butuh ${drug.total}, sisa ${stock})`);
       await sleep(180);
     }
 
@@ -3582,6 +3599,9 @@
     if (missing.length)
       throw new Error("Obat/item belum lengkap: " + missing.join(", "));
 
+    if (lowStock.length) {
+      notify(`Stok kurang, ganti obat/jumlah sebelum Simpan Resep: ${lowStock.join(", ")}.`, "error", 15000);
+    }
     if (alreadyInRecipe.length) {
       notify(
         `Sudah ada di resep, tidak ditambahkan lagi (periksa dosisnya): ${alreadyInRecipe.map((k) => k.replace(/^BPJS -- /, "")).join(", ")}.`,
@@ -3595,6 +3615,25 @@
     // Notifikasi "selesai" dikirim oleh pemanggil (satu notifikasi per proses).
     LOG("Resep selesai diisi dan menunggu review manual sebelum Simpan Resep.");
     return { alreadyInRecipe };
+  }
+
+  // Stok tersisa yang ditampilkan Klinik Pintar di bawah kolom jumlah ("Sisa : 6595").
+  // Dicari di pembungkus TERKECIL kolom itu yang memuat tepat satu tulisan "Sisa".
+  function parseStockText(raw) {
+    const m = String(raw || "").match(/sisa\s*:?\s*(-?[\d.,]+)/i);
+    if (!m) return null;
+    const n = Number(m[1].replace(/[.,](?=\d{3}\b)/g, "").replace(",", "."));
+    return Number.isFinite(n) ? n : null;
+  }
+  function readStockNear(input) {
+    let p = input?.parentElement;
+    for (let i = 0; i < 6 && p; i++, p = p.parentElement) {
+      const t = text(p);
+      const count = (t.match(/sisa\s*:/gi) || []).length;
+      if (count > 1) return null;
+      if (count === 1) return parseStockText(t);
+    }
+    return null;
   }
 
   // Form racikan = kotak dialog TERKECIL yang memuat kolom "nama racikan".
@@ -3986,6 +4025,13 @@
     if (!qty) throw new Error(`Kolom jumlah ${item.target} tidak ditemukan.`);
 
     await setRecipeInputVerified(qty, ingredient.quantity, `Jumlah ${item.target}`);
+    // v9.9: stok kurang = Simpan Racikan pasti ditolak (kolom jumlah merah).
+    const stock = readStockNear(qty);
+    if (stock != null && Number(ingredient.quantity) > stock) {
+      throw new Error(
+        `Stok ${item.target} tinggal ${stock}, racikan butuh ${ingredient.quantity}. Racikan belum disimpan; ganti obat/jumlah secara manual.`,
+      );
+    }
     LOG(`Bahan racikan OK: ${item.target} x ${ingredient.quantity}`);
     return qty;
   }
@@ -4371,6 +4417,105 @@
     return kg ? { kg, source: "teks Tanda-Tanda Vital" } : null;
   }
 
+  // ---------------- TANDA-TANDA VITAL (v9.9) ----------------
+  // Tabel TTV Klinik Pintar: tiap baris = label + nilai kunjungan lama (teks) +
+  // SATU kolom isian kunjungan sekarang (paling kanan). Nilai diambil dari isian itu.
+  const VITAL_FIELDS = {
+    temp: { names: ["suhu tubuh", "suhu"], ok: (v) => v >= 30 && v <= 45 },
+    sys: { names: ["sistole", "sistolik", "tekanan darah sistolik"], ok: (v) => v >= 40 && v <= 300 },
+    dia: { names: ["diastole", "diastolik", "tekanan darah diastolik"], ok: (v) => v >= 20 && v <= 200 },
+    pulse: { names: ["nadi", "denyut nadi"], ok: (v) => v >= 20 && v <= 250 },
+    rr: { names: ["frekuensi pernafasan", "frekuensi pernapasan", "pernapasan", "respirasi"], ok: (v) => v >= 4 && v <= 80 },
+    spo2: { names: ["saturasi oksigen", "saturasi", "spo2"], ok: (v) => v >= 50 && v <= 100 },
+  };
+
+  function parseVitalNumber(raw) {
+    const n = Number(String(raw ?? "").trim().replace(",", "."));
+    return String(raw ?? "").trim() !== "" && Number.isFinite(n) ? n : null;
+  }
+
+  function readLatestVitalValue(field) {
+    const wanted = field.names.map(norm);
+    const labels = [...document.querySelectorAll("body *")].filter((el) => {
+      const raw = el.textContent || "";
+      if (raw.length > 40 || isOwnUi(el)) return false;
+      const t = norm(raw).replace(/\s*\*/g, "").replace(/:$/, "");
+      return wanted.includes(t) && visible(el);
+    });
+    for (const label of labels) {
+      let c = label.parentElement;
+      for (let lvl = 0; lvl < 8 && c && c !== document.body; lvl++, c = c.parentElement) {
+        const inputs = [...c.querySelectorAll('input:not([type="hidden"])')].filter(
+          (el) => visible(el) && !isOwnUi(el),
+        );
+        if (!inputs.length) continue;
+        // Baris TTV hanya punya SATU isian; lebih dari itu = sudah kebesaran (seluruh tabel).
+        if (inputs.length > 1) break;
+        const v = parseVitalNumber(inputs[0].value);
+        if (v != null && field.ok(v)) return v;
+        break;
+      }
+    }
+    return null;
+  }
+
+  function readVitalsFromPage() {
+    const out = {};
+    for (const [key, field] of Object.entries(VITAL_FIELDS)) out[key] = readLatestVitalValue(field);
+    return out;
+  }
+
+  // Penilaian TTV (pure, diuji). Ambang: demam ≥37,5 °C; hipertensi ≥140/90
+  // (krisis ≥180/110); hipotensi sistolik <90; takikardia >100; bradikardia <50;
+  // takipnea >24; SpO2 <95 (berat <90). TD/nadi/napas hanya dinilai untuk umur ≥18
+  // (anak memakai nilai normal sesuai umur, tidak dinilai otomatis).
+  function assessVitals(v, ageYears = null) {
+    const vit = v || {};
+    const fmt = (n) => String(n).replace(".", ",");
+    const adult = !(Number.isFinite(ageYears) && ageYears < 18);
+    const flags = [];
+    const add = (level, textMsg) => flags.push({ level, text: textMsg });
+    const res = { fever: false, highFever: false, hypertension: false, crisis: false, flags, bp: null, temp: vit.temp ?? null };
+
+    if (vit.temp != null && vit.temp >= 37.5) {
+      res.fever = true;
+      res.highFever = vit.temp >= 39;
+      add(res.highFever ? "danger" : "warn", `Suhu ${fmt(vit.temp)} °C (${res.highFever ? "demam tinggi" : "demam"})`);
+    }
+    if (vit.sys != null && vit.dia != null) res.bp = `${vit.sys}/${vit.dia}`;
+    if (adult && vit.sys != null) {
+      const dia = vit.dia ?? 0;
+      if (vit.sys >= 180 || dia >= 110) {
+        res.hypertension = res.crisis = true;
+        add("danger", `TD ${res.bp || vit.sys} mmHg: krisis hipertensi, evaluasi segera`);
+      } else if (vit.sys >= 140 || dia >= 90) {
+        res.hypertension = true;
+        add("warn", `TD ${res.bp || vit.sys} mmHg (≥140/90)`);
+      } else if (vit.sys < 90) {
+        add("danger", `TD ${res.bp || vit.sys} mmHg: hipotensi`);
+      }
+    }
+    if (adult && vit.pulse != null) {
+      if (vit.pulse > 100) add("warn", `Nadi ${vit.pulse}/menit (takikardia)`);
+      else if (vit.pulse < 50) add("warn", `Nadi ${vit.pulse}/menit (bradikardia)`);
+    }
+    if (adult && vit.rr != null && vit.rr > 24) add("warn", `Napas ${vit.rr}/menit (takipnea)`);
+    if (vit.spo2 != null && vit.spo2 < 95)
+      add(vit.spo2 < 90 ? "danger" : "warn", `SpO2 ${vit.spo2}% (${vit.spo2 < 90 ? "hipoksia berat" : "rendah"})`);
+    return res;
+  }
+
+  function formatVitalsSummary(v) {
+    const fmt = (n) => String(n).replace(".", ",");
+    const parts = [];
+    if (v?.temp != null) parts.push(`Suhu ${fmt(v.temp)}`);
+    if (v?.sys != null || v?.dia != null) parts.push(`TD ${v.sys ?? "-"}/${v.dia ?? "-"}`);
+    if (v?.pulse != null) parts.push(`Nadi ${v.pulse}`);
+    if (v?.rr != null) parts.push(`RR ${v.rr}`);
+    if (v?.spo2 != null) parts.push(`SpO2 ${v.spo2}%`);
+    return parts.join(" · ");
+  }
+
   // Isi teks kolom form berlabel `label`, "" bila tidak ada.
   // v9.4: selain input/textarea juga editor teks (contenteditable) dan pilihan
   // bertipe tag (Ant Select), karena Keluhan Utama bisa dirender sebagai salah satunya.
@@ -4620,7 +4765,8 @@
     const result = { keys: [], actionKeys: [], matches: [], notes: [] };
     const lower = String(rawText || "").toLowerCase().replace(/ /g, " ");
     const dx = options.diagnosis || null;
-    if ((!lower.trim() && !dx) || (group !== "adult" && group !== "child")) return result;
+    const vit = options.vitals || null; // hasil assessVitals()
+    if ((!lower.trim() && !dx && !vit?.fever) || (group !== "adult" && group !== "child")) return result;
 
     if (dx) {
       const keys = dx[group] || [];
@@ -4653,6 +4799,13 @@
       for (const a of actions) if (!result.actionKeys.includes(a)) result.actionKeys.push(a);
     }
 
+    // v9.9: TTV — suhu ≥37,5 °C = demam walau tidak tertulis di keluhan.
+    if (vit?.fever) {
+      const k = group === "adult" ? "PARACETAMOL_DEWASA" : "PARACETAMOL_ANAK";
+      result.matches.push({ label: "TTV: demam", keyword: `suhu ${String(vit.temp).replace(".", ",")} °C`, keys: [k], actions: [] });
+      if (!result.keys.includes(k)) result.keys.push(k);
+    }
+
     for (const o of ANAMNESIS_SUGGESTION_OVERLAPS) {
       if (!result.keys.includes(o.when) || !o.drop.some((k) => result.keys.includes(k)))
         continue;
@@ -4661,6 +4814,18 @@
         match.keys = match.keys.filter((k) => !o.drop.includes(k));
       result.notes.push(o.note);
     }
+
+    // v9.9: TTV sebagai pertimbangan terapi (catatan, tidak mencentang obat).
+    if (vit?.hypertension && group === "adult") {
+      if (!result.keys.includes("AMLODIPINE_5") && !result.keys.includes("AMLODIPINE_10"))
+        result.notes.push(`TD ${vit.bp || ""} tinggi: pertimbangkan hipertensi. Antihipertensi tidak dicentang otomatis dari TTV saja.`);
+      const nsaid = result.keys.filter((k) => ["DICLOFENAC_50", "IBUPROFEN_400"].includes(k));
+      if (nsaid.length)
+        result.notes.push(`TD tinggi: ${nsaid.map((k) => (k === "IBUPROFEN_400" ? "Ibuprofen" : "Diclofenac")).join(" & ")} (NSAID) dapat menaikkan tekanan darah; pertimbangkan Paracetamol.`);
+    }
+    if (vit?.crisis) result.notes.push("Krisis hipertensi: evaluasi/rujuk segera sebelum resep rutin.");
+    if (vit?.fever && result.actionKeys.includes("IMUNISASI"))
+      result.notes.push(`Suhu ${String(vit.temp).replace(".", ",")} °C: pertimbangkan menunda imunisasi sampai tidak demam.`);
 
     result.keys = result.keys.filter((k) =>
       isMedicationItemAllowedForGroup(
@@ -5200,6 +5365,8 @@
     const ageInfo = getPatientAgeFromIdentity();
     const weightInfo = getPatientWeightFromLatestVitals();
     const pageComplaint = readChiefComplaintFromPage();
+    const pageVitals = readVitalsFromPage();
+    const vitalsAssessment = assessVitals(pageVitals, ageInfo?.ageYears ?? null);
     const shade = document.createElement("div");
     shade.id = "ak-medgroup-picker";
     shade.innerHTML = `<div class="ak-rp-card ak-medgroup-card akm">
@@ -5217,6 +5384,7 @@
         <div class="akm-stat"><span>Kategori</span><b id="ak-medgroup-group-status" class="akm-cat">—</b></div>
       </div>
       <div id="ak-medgroup-weight-source" class="akm-hint"></div>
+      <div id="ak-medgroup-vitals" class="akm-vitals"></div>
     </section>
     <section class="akm-sec akm-anamnesa">
       <div class="akm-sec-title">📝 Keluhan Utama <button id="ak-medgroup-resuggest" class="akm-link" type="button">↻ Baca ulang</button></div>
@@ -5277,6 +5445,15 @@
         ? `Dari form ${source}. Boleh diubah, saran obat ikut berubah.`
         : "Keluhan Utama tidak ditemukan di halaman. Ketik keluhan untuk mendapat saran.";
     };
+    {
+      const summary = formatVitalsSummary(pageVitals);
+      const flagsHtml = vitalsAssessment.flags
+        .map((f) => `<span class="akm-vflag ${f.level}">${escapePreviewHtml(f.text)}</span>`)
+        .join(" ");
+      shade.querySelector("#ak-medgroup-vitals").innerHTML = summary
+        ? `<b>TTV:</b> ${escapePreviewHtml(summary)}${flagsHtml ? `<div>${flagsHtml}</div>` : ""}`
+        : '<span class="akm-hint">TTV kunjungan ini belum terbaca.</span>';
+    }
     anamnesisEl.value = pageComplaint.text;
     setAnamnesisSource(pageComplaint.source);
 
@@ -5322,7 +5499,7 @@
       for (const k of autoAdded) selectedMedicationKeys.delete(k);
       autoAdded.clear();
       if (reset) dismissed.clear();
-      const s = suggestMedicationsFromAnamnesis(anamnesisEl.value, group, { diagnosis: presetDiagnosis });
+      const s = suggestMedicationsFromAnamnesis(anamnesisEl.value, group, { diagnosis: presetDiagnosis, vitals: vitalsAssessment });
       suggestedKeys = new Set(s.keys);
       for (const k of s.keys) {
         if (dismissed.has(k) || selectedMedicationKeys.has(k)) continue;
@@ -5598,7 +5775,8 @@
       // RESUME + DIAGNOSIS: Diagnosa + ICD dari Keluhan Utama, SEBELUM layanan
       // (Klinik Pintar memberi rekomendasi layanan dari ICD-10 yang dipilih).
       if (withDiagnosis) {
-        dxDetected = detectDiagnosisFromComplaint(readFieldText("Keluhan Utama"));
+        const vitals = assessVitals(readVitalsFromPage(), getPatientAgeFromIdentity()?.ageYears ?? null);
+        dxDetected = detectDiagnosisFromComplaint(readFieldText("Keluhan Utama"), { vitals });
         const dx = dxDetected && DIAGNOSIS_TEMPLATES.find((d) => d.key === dxDetected.key);
         if (dx) {
           // Gagal memilih diagnosis tidak menghentikan resume; dilaporkan di akhir.
@@ -5895,6 +6073,10 @@
 
     /* ---------- Paket Resep Golongan ---------- */
     .ak-package-step{margin-top:16px!important;}
+    .akm-vitals{margin-top:6px!important;font:600 12px/1.5 Arial,sans-serif!important;color:#334155!important;}
+    .akm-vflag{display:inline-block!important;margin:3px 4px 0 0!important;padding:1px 7px!important;border-radius:999px!important;font:700 11px Arial,sans-serif!important;}
+    .akm-vflag.warn{background:#fef3c7!important;color:#92400e!important;}
+    .akm-vflag.danger{background:#fee2e2!important;color:#b91c1c!important;}
     .ak-package-status{margin-top:8px!important;padding:8px 10px!important;border-radius:8px!important;background:#f3f4f6!important;
       color:#4b5563!important;font:700 12px Arial,sans-serif!important;}
     .ak-package-status.adult{background:#fff7ed!important;color:#9a3412!important;}
@@ -6129,6 +6311,9 @@
       DIAGNOSIS_TEMPLATES,
       DIAGNOSIS_FROM_COMPLAINT,
       detectDiagnosisFromComplaint,
+      assessVitals,
+      formatVitalsSummary,
+      parseStockText,
       suggestMedicationsFromAnamnesis,
       parsePatientAge,
       formatPatientAge,
