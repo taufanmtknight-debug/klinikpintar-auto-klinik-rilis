@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Klinik Pintar - AUTO KLINIK
 // @namespace    klinikpintar-auto
-// @version      9.5.0
+// @version      9.6.0
 // @description  AUTO KLINIK untuk os.klinikpintar.id — ISPA Dewasa, Resume, Resep Manual, Paket Resep Golongan. Tidak pernah menekan Simpan otomatis.
 // @author       taufanmtknight-debug
 // @match        https://os.klinikpintar.id/*
@@ -34,7 +34,7 @@
 
   // Versi diambil dari header (GM_info) agar label launcher tidak pernah beda
   // dengan @version. Nilai cadangan WAJIB sama dengan @version (dicek oleh test).
-  const SCRIPT_VERSION_FALLBACK = "9.5.0";
+  const SCRIPT_VERSION_FALLBACK = "9.6.0";
   const VERSION =
     (typeof GM_info !== "undefined" && GM_info?.script?.version) ||
     SCRIPT_VERSION_FALLBACK;
@@ -440,32 +440,6 @@
       medicines: [{ item: "ZINC_20", freq: "1", dose: "1", days: "10", total: "10", instruction: "SETELAH MAKAN" }],
     };
   }
-
-  // Tombol di menu RESEP MANUAL (key RECIPE_TEMPLATES -> label).
-  const QUICK_RECIPES = [
-    ["GEA", "GEA"],
-    ["DEMAM_DEWASA", "Demam Dewasa"],
-    ["DIARE_ANAK_KURANG_6_BULAN", "Diare Anak <6 Bulan"],
-    ["DIARE_ANAK_6_BULAN_PLUS", "Diare Anak >6 Bulan"],
-    ["DERMATITIS", "Dermatitis"],
-    ["DYSPEPSIA", "Dyspepsia"],
-    ["LBP", "LBP"],
-    ["OA_GENU", "OA Genu"],
-    ["MYALGIA", "Myalgia"],
-    ["HT_AMLODIPINE_5", "HT • Amlodipine 5 mg"],
-    ["HT_AMLODIPINE_10", "HT • Amlodipine 10 mg"],
-    ["HT_CAPTOPRIL_12_5", "HT • Captopril 12,5 mg"],
-    ["HT_CAPTOPRIL_25", "HT • Captopril 25 mg"],
-    ["DM_METFORMIN", "DM • Metformin 500 mg"],
-    ["DM_GLIMEPIRIDE_1", "DM • Glimepiride 1 mg"],
-    ["DM_GLIMEPIRIDE_2", "DM • Glimepiride 2 mg"],
-    ["CEK_GULA", "Cek Gula Darah"],
-    ["ASAM_URAT", "Asam Urat"],
-    ["KOLESTEROL", "Kolesterol"],
-    ["CEK_ASAM_URAT", "Cek Asam Urat"],
-    ["CEK_KOLESTEROL", "Cek Kolesterol"],
-    ["IMUNISASI", "Imunisasi"],
-  ];
 
   // Resep tindakan yang bisa ditambahkan ke Paket Resep Golongan.
   const PACKAGE_ACTIONS = [
@@ -1122,18 +1096,51 @@
       pattern: /diabetes|kencing\s+manis|gula\s+(?:darah\s+)?(?:tinggi|naik)|\bdm\b/,
       adult: ["METFORMIN_500"],
       child: [],
+      actions: ["CEK_GULA"],
     },
     {
       label: "Kolesterol",
       pattern: /kolesterol|dislipid\w*|lemak\s+darah/,
       adult: ["SIMVASTATIN_10"],
       child: [],
+      actions: ["CEK_KOLESTEROL"],
     },
     {
       label: "Asam urat",
       pattern: /asam\s+urat|\bgout\b|hiperurisemi\w*/,
       adult: ["ALLOPURINOL_100"],
       child: [],
+      actions: ["CEK_ASAM_URAT"],
+    },
+    // v9.6: keluhan yang mengarah ke TINDAKAN (resep tindakan dicentang otomatis).
+    // Hanya tindakan, tanpa obat: permintaan cek lab belum berarti perlu obat.
+    {
+      label: "Cek gula darah",
+      pattern: /(?:cek|periksa|tes)\s+(?:gula|gds|gdp|gd2pp|kadar\s+gula)|sering\s+(?:haus|kencing\s+malam|lapar)|poli(?:uri|dipsi|fagi)/,
+      adult: [],
+      child: [],
+      actions: ["CEK_GULA"],
+    },
+    {
+      label: "Cek kolesterol",
+      pattern: /(?:cek|periksa|tes)\s+kolesterol/,
+      adult: [],
+      child: [],
+      actions: ["CEK_KOLESTEROL"],
+    },
+    {
+      label: "Cek asam urat",
+      pattern: /(?:cek|periksa|tes)\s+(?:asam\s+urat|au\b)/,
+      adult: [],
+      child: [],
+      actions: ["CEK_ASAM_URAT"],
+    },
+    {
+      label: "Imunisasi",
+      pattern: /imunisasi|vaksin\w*|\bbcg\b|\bdpt\w*|\bpolio\b|\bopv\b|\bipv\b|\bpcv\b|\brota\w*|campak\s+rubel\w*|\bmr\b|hepatitis\s+b\s+0|\bhb[\s-]?0\b|\btt\b|\btd\b|suntik\s+(?:tetanus|imunisasi)/,
+      adult: [],
+      child: [],
+      actions: ["IMUNISASI"],
     },
     {
       label: "Kesemutan / lemas",
@@ -1141,6 +1148,20 @@
       adult: ["VITAMIN_B_COMPLEX"],
       child: [],
     },
+  ];
+
+  // MENU DIAGNOSIS (v9.6): hanya mengisi kolom Diagnosa dan ICD 10 (2010).
+  // icd   = kode yang dipilih, urut prioritas (kode pertama yang ada di daftar
+  //         Klinik Pintar dipakai; ICD-10 versi 2010 bisa memakai subkode).
+  // query = teks yang diketik di kolom Diagnosa untuk memunculkan pilihannya.
+  const DIAGNOSIS_TEMPLATES = [
+    { key: "ISPA", label: "ISPA", icd: ["J06"], query: "Acute upper respiratory infections of multiple and unspecified sites" },
+    { key: "GEA", label: "GEA (Gastroenteritis akut)", icd: ["A09", "A09.9", "A09.0"], query: "gastroenteritis" },
+    { key: "DISPEPSIA", label: "Dispepsia", icd: ["K30"], query: "dyspepsia" },
+    { key: "FEVER", label: "Fever / Demam", icd: ["R50.9", "R50"], query: "fever" },
+    { key: "DM", label: "DM tipe 2", icd: ["E11.9", "E11"], query: "non-insulin-dependent diabetes" },
+    { key: "HT", label: "Hipertensi", icd: ["I10"], query: "hypertension" },
+    { key: "IMUNISASI", label: "Imunisasi", icd: ["Z27.9", "Z27.8", "Z23.8"], query: "need for immunization" },
   ];
 
   // Jika obat `when` disarankan, obat `drop` tidak disarankan (isi tumpang tindih).
@@ -1545,6 +1566,101 @@
   // Opsi J06 di dropdown ICD sama persis dengan dropdown Diagnosa.
   function findExactIcdJ06Option() {
     return findExactDiagnosisJ06Option();
+  }
+
+  // ---------------- MENU DIAGNOSIS (v9.6) ----------------
+  // Pilihan ICD tampil sebagai "J06  Acute upper ... (Spesialis)". Kode diambil
+  // dari awal teks pilihan, lalu dicocokkan PERSIS (J06 ≠ J06.0 / J06.8 / J06.9).
+  function optionIcdCode(opt) {
+    const m = norm(text(opt)).match(/^([a-z]\d{2}(?:\.\d{1,2})?)\b/);
+    return m ? m[1].toUpperCase() : "";
+  }
+
+  function visibleIcdOptions() {
+    return visibleSelectDropdowns()
+      .flatMap((root) => [...root.querySelectorAll('[role="option"], .ant-select-item-option, .ant-select-item, li')])
+      .filter((o) => visible(o) && !isOwnUi(o) && optionIcdCode(o));
+  }
+
+  function findIcdOption(codes) {
+    const opts = visibleIcdOptions();
+    for (const code of codes) {
+      const hit = opts.find((o) => optionIcdCode(o) === code.toUpperCase());
+      if (hit) return hit;
+    }
+    return null;
+  }
+
+  // Kotak hasil pilihan ICD di bawah kolom ("J06 Primer Acute upper ...").
+  function icdAlreadySelected(code) {
+    const wanted = code.toLowerCase();
+    return [...document.querySelectorAll("div, li, tr")].some((el) => {
+      if (!visible(el) || isOwnUi(el) || el.closest(DROPDOWN_SCOPE)) return false;
+      const t = norm(text(el));
+      return t.length < 400 && t.startsWith(wanted + " ") && /\b(?:primer|sekunder)\b/.test(t);
+    });
+  }
+
+  // Ketik teks, tunggu pilihan dengan kode yang diminta, lalu klik.
+  // Tidak pernah memakai ArrowDown+Enter (bisa memilih J06.0 untuk J06).
+  async function typeAndPickIcdOption(input, typed, codes, fieldName) {
+    try {
+      input.focus();
+    } catch (_) {}
+    nativeSetValue(input, "");
+    await sleep(120);
+    nativeSetValue(input, typed);
+    const opt = await waitFor(() => findIcdOption(codes), 6000, 150, `pilihan ${codes.join("/")} di ${fieldName}`).catch(() => null);
+    if (!opt) {
+      const seen = visibleIcdOptions().slice(0, 6).map((o) => text(o).slice(0, 60));
+      throw new Error(
+        `${fieldName}: kode ${codes.join(" / ")} tidak ada di daftar.` +
+          (seen.length ? ` Yang muncul: ${seen.join(" | ")}` : " Daftar pilihan tidak muncul."),
+      );
+    }
+    const code = optionIcdCode(opt);
+    const content = opt.querySelector(".ant-select-item-option-content") || opt;
+    clickCenter(content);
+    for (let i = 0; i < 2 && findIcdOption([code]); i++) {
+      await sleep(500);
+      const again = findIcdOption([code]);
+      if (!again) break;
+      dispatchOptionSelection(again);
+    }
+    await sleep(500);
+    return code;
+  }
+
+  async function fillDiagnosis(dx) {
+    // 1) Kolom Diagnosa
+    const diag =
+      findInputByPlaceholder(["Masukkan diagnosa"]) ||
+      getEditableInput(nearbyControlFromLabel("Diagnosa"));
+    if (!diag) throw new Error("Kolom Diagnosa tidak ditemukan");
+    let diagCode = null;
+    try {
+      diagCode = await typeAndPickIcdOption(diag, dx.query, dx.icd, "Diagnosa");
+    } catch (e) {
+      // Kolom Diagnosa kadang tanpa daftar pilihan: teks tetap terisi.
+      if (!/tidak muncul/.test(e.message)) throw e;
+      LOG("Diagnosa: daftar pilihan tidak muncul, teks diagnosis diisi langsung.");
+    }
+
+    // 2) Kolom ICD 10 (2010)
+    if (dx.icd.some(icdAlreadySelected)) {
+      LOG(`ICD ${dx.icd.join("/")} sudah terpilih -> dilewati`);
+      return { diagCode, icdCode: dx.icd.find(icdAlreadySelected), skipped: true };
+    }
+    const icd =
+      findInputByPlaceholder(["Masukan kode atau diagnosa/penyakit", "Masukkan kode atau diagnosa/penyakit"]) ||
+      getEditableInput(nearbyControlFromLabel("ICD 10 (2010)"));
+    if (!icd) throw new Error("Kolom ICD 10 (2010) tidak ditemukan");
+    // Ketik kode yang sudah pasti (dari pilihan Diagnosa) bila ada.
+    const codes = diagCode ? [diagCode, ...dx.icd.filter((c) => c !== diagCode)] : dx.icd;
+    const icdCode = await typeAndPickIcdOption(icd, codes[0], codes, "ICD 10");
+    const ok = await waitFor(() => icdAlreadySelected(icdCode), 3000, 150, "ICD terpilih").catch(() => false);
+    if (!ok && findIcdOption([icdCode])) throw new Error(`ICD ${icdCode} belum berhasil dipilih.`);
+    return { diagCode, icdCode, skipped: false };
   }
 
 
@@ -4422,13 +4538,14 @@
   // Saran pilihan obat dari teks anamnesa untuk kategori `group` (adult/child).
   // Hasil: keys (urut, unik, sesuai kategori), matches (alasan), notes.
   function suggestMedicationsFromAnamnesis(rawText, group) {
-    const result = { keys: [], matches: [], notes: [] };
+    const result = { keys: [], actionKeys: [], matches: [], notes: [] };
     const lower = String(rawText || "").toLowerCase().replace(/ /g, " ");
     if (!lower.trim() || (group !== "adult" && group !== "child")) return result;
 
     for (const rule of ANAMNESIS_SUGGESTION_RULES) {
       const keys = rule[group] || [];
-      if (!keys.length) continue;
+      const actions = rule.actions || [];
+      if (!keys.length && !actions.length) continue;
       const re = new RegExp(rule.pattern.source, "g");
       let m;
       let keyword = null;
@@ -4443,8 +4560,9 @@
         }
       }
       if (!keyword) continue;
-      result.matches.push({ label: rule.label, keyword, keys: [...keys] });
+      result.matches.push({ label: rule.label, keyword, keys: [...keys], actions: [...actions] });
       for (const k of keys) if (!result.keys.includes(k)) result.keys.push(k);
+      for (const a of actions) if (!result.actionKeys.includes(a)) result.actionKeys.push(a);
     }
 
     for (const o of ANAMNESIS_SUGGESTION_OVERLAPS) {
@@ -4568,6 +4686,10 @@
     }
 
     for (const rule of ANAMNESIS_SUGGESTION_RULES) {
+      for (const a of rule.actions || []) {
+        if (!PACKAGE_ACTIONS.some((x) => x.key === a))
+          errors.push(`Saran keluhan "${rule.label}": tindakan ${a} tidak ada di PACKAGE_ACTIONS.`);
+      }
       for (const group of ["adult", "child"]) {
         for (const key of rule[group] || []) {
           const item = MEDICATION_ITEMS_FLAT.find((x) => x.key === key);
@@ -5012,7 +5134,7 @@
     </section>
     <section class="akm-sec akm-tindakan">
       <div class="akm-sec-title">🩹 Resep tindakan <small>(opsional)</small></div>
-      <div class="akm-choices">${PACKAGE_ACTIONS.map((a) => `<label class="ak-package-choice"><input data-med-action="${a.key}" type="checkbox" value="${a.key}"><span class="akm-name">${a.label}</span></label>`).join("")}</div>
+      <div class="akm-choices" id="ak-medgroup-actions"></div>
     </section>
    </div>
   </div>
@@ -5067,6 +5189,31 @@
     let suggestedKeys = new Set();
     const autoAdded = new Set();
     const dismissed = new Set();
+    // v9.6: resep tindakan juga bisa disarankan (mis. "imunisasi", "cek gula").
+    const selectedActionKeys = new Set();
+    let suggestedActions = new Set();
+    const autoAddedActions = new Set();
+    const dismissedActions = new Set();
+    const actionsEl = shade.querySelector("#ak-medgroup-actions");
+    const renderActions = () => {
+      actionsEl.innerHTML = PACKAGE_ACTIONS.map(
+        (a) =>
+          `<label class="ak-package-choice${suggestedActions.has(a.key) ? " akm-suggested" : ""}"><input data-med-action="${a.key}" type="checkbox" value="${a.key}" ${selectedActionKeys.has(a.key) ? "checked" : ""}><span class="akm-name">${escapePreviewHtml(a.label)}</span>${suggestedActions.has(a.key) ? '<em class="ak-suggest-badge">saran</em>' : ""}</label>`,
+      ).join("");
+      actionsEl.querySelectorAll("[data-med-action]").forEach((x) =>
+        x.addEventListener("change", () => {
+          if (x.checked) {
+            selectedActionKeys.add(x.value);
+            dismissedActions.delete(x.value);
+          } else {
+            selectedActionKeys.delete(x.value);
+            if (autoAddedActions.delete(x.value)) dismissedActions.add(x.value);
+          }
+          updateSelected();
+        }),
+      );
+    };
+    const actionLabel = (key) => PACKAGE_ACTIONS.find((a) => a.key === key)?.label || key;
     const itemLabel = (key) =>
       MEDICATION_ITEMS_FLAT.find((x) => x.key === key)?.label || key;
 
@@ -5081,6 +5228,16 @@
         selectedMedicationKeys.add(k);
         autoAdded.add(k);
       }
+      for (const a of autoAddedActions) selectedActionKeys.delete(a);
+      autoAddedActions.clear();
+      if (reset) dismissedActions.clear();
+      suggestedActions = new Set(s.actionKeys);
+      for (const a of s.actionKeys) {
+        if (dismissedActions.has(a) || selectedActionKeys.has(a)) continue;
+        selectedActionKeys.add(a);
+        autoAddedActions.add(a);
+      }
+      renderActions();
       if (!group) {
         suggestionEl.innerHTML = `<div class="ak-preview-empty">Saran obat muncul setelah kategori DEWASA/ANAK diketahui.</div>`;
       } else if (!anamnesisEl.value.trim()) {
@@ -5091,13 +5248,13 @@
         const rows = s.matches
           .map(
             (m) =>
-              `• <b>${escapePreviewHtml(m.label)}</b> <small>("${escapePreviewHtml(m.keyword)}")</small> → ${m.keys.length ? m.keys.map((k) => escapePreviewHtml(itemLabel(k))).join(", ") : "sudah tercakup obat lain (lihat ⓘ)"}`,
+              `• <b>${escapePreviewHtml(m.label)}</b> <small>("${escapePreviewHtml(m.keyword)}")</small> → ${[...m.keys.map((k) => escapePreviewHtml(itemLabel(k))), ...(m.actions || []).map((a) => "Tindakan " + escapePreviewHtml(actionLabel(a)))].join(", ") || "sudah tercakup obat lain (lihat ⓘ)"}`,
           )
           .join("<br>");
         const notes = s.notes
           .map((n) => `<br><small>ⓘ ${escapePreviewHtml(n)}</small>`)
           .join("");
-        suggestionEl.innerHTML = `<div class="ak-package-suggestion-box"><div class="ak-live-preview-title">✨ SARAN OBAT DARI KELUHAN UTAMA (${group === "adult" ? "DEWASA" : "ANAK"})</div>${rows}${notes}<div class="ak-package-suggestion-warn">Saran otomatis berdasarkan kata kunci dan sudah dicentang. Dokter wajib mengevaluasi indikasi, kontraindikasi, dan riwayat alergi sebelum input.</div></div>`;
+        suggestionEl.innerHTML = `<div class="ak-package-suggestion-box"><div class="ak-live-preview-title">✨ SARAN OBAT & TINDAKAN DARI KELUHAN UTAMA (${group === "adult" ? "DEWASA" : "ANAK"})</div>${rows}${notes}<div class="ak-package-suggestion-warn">Saran otomatis berdasarkan kata kunci dan sudah dicentang. Dokter wajib mengevaluasi indikasi, kontraindikasi, dan riwayat alergi sebelum input.</div></div>`;
       }
     };
 
@@ -5136,9 +5293,9 @@
       const hiddenCount = [...selectedMedicationKeys].filter(
         (key) => !visibleLabels.some((x) => x.value === key),
       ).length;
-      const acts = [...shade.querySelectorAll("[data-med-action]:checked")]
-        .map((x) => x.closest("label")?.innerText?.trim())
-        .filter(Boolean);
+      const acts = [...shade.querySelectorAll("[data-med-action]:checked")].map((x) =>
+        actionLabel(x.value),
+      );
       const names = [...meds, ...acts.map((x) => "Tindakan " + x)];
       const total = names.length;
       countEl.textContent = meds.length ? `${meds.length} dipilih` : "";
@@ -5203,9 +5360,7 @@
         resuggest({ reset: true });
       });
     weight?.addEventListener("input", () => refreshCategory());
-    shade
-      .querySelectorAll("[data-med-action]")
-      .forEach((x) => x.addEventListener("change", updateSelected));
+    renderActions();
     refreshCategory();
     shade
       .querySelector("#ak-medgroup-run")
@@ -5251,10 +5406,6 @@
   // 7. MENU — Penyakit, Resep Manual, Resume
   // ============================================================
 
-  function shortItemName(itemKey) {
-    return String(ITEMS[itemKey]?.target || itemKey).replace(/^BPJS -- /, "");
-  }
-
   function overlayHead(title, subtitle) {
     return `<div class="ak-rp-head"><div><div class="ak-rp-title">${escapePreviewHtml(title)}</div><div class="ak-rp-sub">${escapePreviewHtml(subtitle)}</div></div><button class="ak-rp-x" type="button" aria-label="Tutup">×</button></div>`;
   }
@@ -5271,195 +5422,47 @@
     return { shade, close };
   }
 
-  function renderDiseasePicker() {
+  // ---------------- MENU DIAGNOSIS ----------------
+  function renderDiagnosisPicker() {
     const { shade, close } = openOverlay(
       "ak-disease-picker",
       "ak-disease-card",
-      `${overlayHead("PENYAKIT", "Pilih template penyakit yang akan diisi.")}
+      `${overlayHead("DIAGNOSIS", "Hanya mengisi kolom Diagnosa dan ICD 10 (2010).")}
         <div class="ak-rp-section">
-          <div class="ak-rp-label">PENYAKIT</div>
           <div class="ak-rp-grid">
-            <button class="ak-rp-btn" id="ak-disease-ispa" type="button">ISPA DEWASA</button>
+            ${DIAGNOSIS_TEMPLATES.map((d) => `<button class="ak-rp-btn ak-rp-weight" data-dx="${d.key}" type="button"><span>${escapePreviewHtml(d.label)}</span><small>ICD-10 ${escapePreviewHtml(d.icd[0])}</small></button>`).join("")}
           </div>
         </div>`,
     );
-    shade.querySelector("#ak-disease-ispa")?.addEventListener("click", () => {
-      close();
-      runTemplate("ispa");
-    });
-  }
-
-  // ---------------- RESEP MANUAL ----------------
-  const CHILD_RECIPE_KEYS = ["DIARE_ANAK_KURANG_6_BULAN", "DIARE_ANAK_6_BULAN_PLUS"];
-  const ACTION_RECIPE_KEYS = ["CEK_GULA", "CEK_ASAM_URAT", "CEK_KOLESTEROL", "IMUNISASI"];
-
-  // Sub-menu pilihan rentang BB di RESEP ANAK.
-  const MANUAL_WEIGHT_MENUS = {
-    MUAL_MUNTAH_SYRUP: { title: "MUAL MUNTAH SYRUP", kind: "recipe", prefix: "MUAL_MUNTAH_SYRUP_ANAK_" },
-    ANTIBIOTIK_SYRUP: { title: "ANTIBIOTIK SYRUP", kind: "recipe", prefix: "ANTIBIOTIK_SYRUP_ANAK_" },
-    ISPA_ANAK: { title: "RACIKAN ISPA", kind: "racikan", prefix: "ISPA_ANAK_" },
-    DEMAM_ANAK: { title: "RACIKAN DEMAM", kind: "racikan", prefix: "DEMAM_ANAK_" },
-    ANTIBIOTIK_ANAK: { title: "RACIKAN ANTIBIOTIK", kind: "racikan", prefix: "ANTIBIOTIK_ANAK_" },
-    MUAL_MUNTAH_ANAK: { title: "RACIKAN MUAL MUNTAH", kind: "racikan", prefix: "MUAL_MUNTAH_ANAK_" },
-  };
-
-  const quickButtons = (keys) =>
-    QUICK_RECIPES.filter(([key]) => keys.includes(key)).map(([key, label]) => ({
-      action: `recipe:${key}`,
-      label,
-    }));
-
-  const MANUAL_CATEGORIES = {
-    dewasa: {
-      title: "RESEP DEWASA",
-      buttons: [
-        { action: "ispa", label: "ISPA" },
-        ...QUICK_RECIPES.filter(
-          ([key]) => !CHILD_RECIPE_KEYS.includes(key) && !ACTION_RECIPE_KEYS.includes(key),
-        ).map(([key, label]) => ({ action: `recipe:${key}`, label })),
-      ],
-    },
-    anak: {
-      title: "RESEP ANAK",
-      buttons: [
-        ...quickButtons(CHILD_RECIPE_KEYS),
-        ...Object.entries(MANUAL_WEIGHT_MENUS).map(([key, m]) => ({
-          action: `weight:${key}`,
-          label: `${m.title} ›`,
-        })),
-      ],
-    },
-    tindakan: { title: "RESEP TINDAKAN", buttons: quickButtons(ACTION_RECIPE_KEYS) },
-  };
-
-  function runManualRecipe(tpl) {
-    return runTask(`RESEP ${tpl.title}`, async () => {
-      await addRecipeItems(tpl.medicines);
-      notify(`RESEP ${tpl.title} selesai. Silakan review sebelum Simpan Resep.`, "success", 9000);
-    });
-  }
-
-  function runManualRacikan(tpl) {
-    return runTask(`RACIKAN ${tpl.title}`, async () => {
-      await addRacikan(tpl);
-      notify(`RACIKAN ${tpl.title} selesai. Silakan review racikan sebelum melanjutkan.`, "success", 9000);
-    });
-  }
-
-  function renderManualCategoryPicker() {
-    const { shade, close } = openOverlay(
-      "ak-recipe-picker",
-      "",
-      `${overlayHead("AUTO RESEP", "Pilih kategori resep.")}
-        <div class="ak-rp-section">
-          <div class="ak-rp-label">KATEGORI</div>
-          <div class="ak-rp-grid">
-            ${Object.entries(MANUAL_CATEGORIES)
-              .map(([key, c]) => `<button class="ak-rp-btn" data-category="${key}" type="button">${c.title}</button>`)
-              .join("")}
-          </div>
-        </div>`,
-    );
-    shade.querySelectorAll("[data-category]").forEach((btn) =>
+    shade.querySelectorAll("[data-dx]").forEach((btn) =>
       btn.addEventListener("click", () => {
         close();
-        renderManualRecipeList(btn.dataset.category);
+        runDiagnosis(btn.dataset.dx);
       }),
     );
   }
 
-  function renderManualRecipeList(categoryKey) {
-    const cat = MANUAL_CATEGORIES[categoryKey];
-    if (!cat) return;
-    const { shade, close } = openOverlay(
-      "ak-recipe-picker",
-      "",
-      `${overlayHead(cat.title, "Pilih resep yang akan dimasukkan.")}
-        <div class="ak-rp-section">
-          <div class="ak-rp-label">${cat.title}</div>
-          <div class="ak-rp-grid">
-            ${cat.buttons
-              .map((b) => `<button class="ak-rp-btn" data-action="${b.action}" type="button">${escapePreviewHtml(b.label)}</button>`)
-              .join("")}
-          </div>
-        </div>
-        <div class="ak-rp-foot"><button class="ak-rp-back" type="button">← Kembali ke kategori</button></div>`,
-    );
-    shade.querySelector(".ak-rp-back")?.addEventListener("click", () => {
-      close();
-      renderManualCategoryPicker();
+  function runDiagnosis(key) {
+    const dx = DIAGNOSIS_TEMPLATES.find((d) => d.key === key);
+    if (!dx) return notify(`Diagnosis tidak dikenal: ${key}`, "error", 8000);
+    return runTask(`DIAGNOSIS ${dx.label}`, async () => {
+      if (!isMedicalRecordCreatePage()) {
+        throw new Error("Buka halaman Buat Rekam Medis pasien terlebih dahulu.");
+      }
+      const r = await fillDiagnosis(dx);
+      notify(
+        r.skipped
+          ? `ICD ${r.icdCode} sudah terpilih sebelumnya. Diagnosa diisi: ${dx.label}.`
+          : `DIAGNOSIS ${dx.label} terisi: ICD-10 ${r.icdCode}. Periksa sebelum Simpan.`,
+        "success",
+        9000,
+      );
     });
-    shade.querySelectorAll("[data-action]").forEach((btn) =>
-      btn.addEventListener("click", () => {
-        const [type, key] = btn.dataset.action.split(":");
-        close();
-        if (type === "weight") return renderManualWeightList(key);
-        if (type === "ispa") {
-          return runTask("AUTO RESEP - ISPA", async () => {
-            await addRecipeItems(TEMPLATE.medicines);
-            notify("AUTO RESEP - ISPA selesai. Silakan periksa semua obat sebelum Simpan Resep.", "success", 8000);
-          });
-        }
-        const tpl = RECIPE_TEMPLATES[key];
-        if (!tpl) return notify(`Template resep tidak ditemukan: ${key}`, "error", 8000);
-        return runManualRecipe(tpl);
-      }),
-    );
   }
 
-  function describeWeightTemplate(menu, tpl) {
-    if (menu.kind === "recipe") {
-      const m = tpl.medicines[0];
-      return `${shortItemName(m.item)}: ${m.dose} ml, ${m.freq}× sehari`;
-    }
-    return tpl.ingredients
-      .map((i) => `${i.quantity} tablet ${shortItemName(i.item)}`)
-      .join(" + ");
-  }
-
-  function renderManualWeightList(menuKey) {
-    const menu = MANUAL_WEIGHT_MENUS[menuKey];
-    if (!menu) return;
-    const source = menu.kind === "recipe" ? RECIPE_TEMPLATES : RACIKAN_TEMPLATES;
-    const entries = Object.entries(source).filter(([key]) => key.startsWith(menu.prefix));
-    const { shade, close } = openOverlay(
-      "ak-recipe-picker",
-      "",
-      `${overlayHead(menu.title, "Pilih rentang berat badan pasien.")}
-        <div class="ak-rp-section">
-          <div class="ak-rp-label">BERAT BADAN</div>
-          <div class="ak-rp-grid">
-            ${entries
-              .map(
-                ([key, tpl]) =>
-                  `<button class="ak-rp-btn ak-rp-weight" data-key="${key}" type="button"><span>${bandLabel(tpl.band)}</span><small>${escapePreviewHtml(describeWeightTemplate(menu, tpl))}</small></button>`,
-              )
-              .join("")}
-          </div>
-        </div>
-        <div class="ak-rp-foot"><button class="ak-rp-back" type="button">← Kembali ke resep anak</button></div>`,
-    );
-    shade.querySelector(".ak-rp-back")?.addEventListener("click", () => {
-      close();
-      renderManualRecipeList("anak");
-    });
-    shade.querySelectorAll("[data-key]").forEach((btn) =>
-      btn.addEventListener("click", () => {
-        close();
-        const tpl = source[btn.dataset.key];
-        if (!tpl) return notify(`Template tidak ditemukan: ${btn.dataset.key}`, "error", 8000);
-        return menu.kind === "recipe" ? runManualRecipe(tpl) : runManualRacikan(tpl);
-      }),
-    );
-  }
-
-  function showRecipePicker() {
-    renderManualCategoryPicker();
-  }
-
-  // ---------------- FORM REKAM MEDIS: ISPA DEWASA & RESUME ----------------
-  // ispa   : kesadaran, diagnosis + ICD J06, prognosa, layanan, resep ISPA, status pulang
+  // ---------------- FORM REKAM MEDIS: RESUME ----------------
   // resume : salin Keluhan Utama -> Anamnesa, kesadaran, prognosa (bila ada), layanan, status pulang
+  // (mode "ispa" lama tidak lagi ada di menu; diganti menu DIAGNOSIS + PAKET RESEP)
   function runTemplate(mode = "ispa") {
     const isResume = mode === "resume";
     const label = isResume ? "AUTO KLINIK - RESUME" : "AUTO KLINIK - ISPA DEWASA";
@@ -5582,284 +5585,10 @@
   }
 
   const MAIN_MENU = [
-    { id: "auto-klinik-penyakit", label: "🩺 PENYAKIT", run: () => renderDiseasePicker() },
+    { id: "auto-klinik-diagnosis", label: "🩺 DIAGNOSIS", run: () => renderDiagnosisPicker() },
     { id: "auto-klinik-resume", label: "📋 RESUME", run: () => runTemplate("resume") },
-    { id: "auto-klinik-manual", label: "💊 RESEP MANUAL", run: () => showRecipePicker() },
     { id: "auto-klinik-paket-obat", label: "💊 PAKET RESEP GOLONGAN", run: () => renderMedicationGroupPackagePicker() },
-    { id: "auto-klinik-daftar-obat", label: "🔎 CARI OBAT KLINIK", run: () => renderClinicMedicineFinder() },
-    { id: "auto-klinik-update", label: "⟳ CEK UPDATE", run: () => checkForUpdate() },
   ];
-
-  // ---------------- CARI OBAT KLINIK ----------------
-  // Membaca hasil kolom "Cari Obat" Klinik Pintar (TIDAK memilih apa pun), lalu
-  // menandai obat yang sudah ada di master ITEMS dan menyiapkan baris kode untuk
-  // obat baru, supaya menambah obat cukup salin-tempel ke ITEMS.
-
-  // "BPJS -- LODIA Rp 1.397 per tablet" -> { name, unit, price, raw }
-  function parseClinicOption(raw) {
-    const t = String(raw || "").replace(/\s+/g, " ").trim();
-    const cut = t.search(/\s(?:Rp\.?\s?\d|stok\b|stock\b|sisa\b)/i);
-    return {
-      name: (cut > 0 ? t.slice(0, cut) : t).trim(),
-      unit: (t.match(/\bper\s+([a-z]+)/i)?.[1] || "").toLowerCase(),
-      price: t.match(/Rp\.?\s?[\d.,]+/i)?.[0] || "",
-      raw: t,
-    };
-  }
-
-  function makeItemKey(name) {
-    return (
-      String(name)
-        .replace(/^BPJS\s*--\s*/i, "")
-        .toUpperCase()
-        .replace(/[^A-Z0-9]+/g, "_")
-        .replace(/^_+|_+$/g, "")
-        .slice(0, 40) || "OBAT_BARU"
-    );
-  }
-
-  function guessItemUnit(name) {
-    const n = String(name).toUpperCase();
-    if (/SYR|SIRUP|SYRUP|SUSP|DROP/.test(n)) return "bottle";
-    if (/SALEP|CREAM|\bCR\b|\d\s*GR\b|ZALF|OINT/.test(n)) return "tube";
-    if (/SPUIT|HANDSCOON|STRIP|LANCET|SWAB|KASA|POT\b|PLESTER/.test(n)) return "pcs";
-    return "tablet";
-  }
-
-  function itemCodeLine(opt) {
-    const unit = opt.unit || guessItemUnit(opt.name);
-    return `    ${makeItemKey(opt.name)}: { keyword: ${JSON.stringify(opt.name)}, target: ${JSON.stringify(opt.name)}, unit: ${JSON.stringify(unit)} },`;
-  }
-
-  function findRegisteredItemKey(name) {
-    const n = norm(name);
-    return Object.keys(ITEMS).find((k) => norm(ITEMS[k].target) === n) || null;
-  }
-
-  // Ketik `query` di kolom Cari Obat form resep dan kumpulkan semua pilihan
-  // (termasuk yang baru muncul saat daftar digulir). Tidak ada yang diklik.
-  async function searchClinicMedicines(query) {
-    await openOrReusePrescriptionForm();
-    const search = await waitFor(() => findPrescriptionSearch(), 7000, 100, "kolom Cari Obat");
-    const seen = new Map();
-    const collect = () => {
-      const roots = visibleSelectDropdowns();
-      if (!roots.length && findPrescriptionModal()) roots.push(findPrescriptionModal());
-      for (const root of roots) {
-        for (const opt of root.querySelectorAll('[role="option"], .ant-select-item-option')) {
-          if (!visible(opt)) continue;
-          const parsed = parseClinicOption(text(opt));
-          if (parsed.name && !seen.has(norm(parsed.name))) seen.set(norm(parsed.name), parsed);
-        }
-      }
-    };
-    try {
-      search.focus();
-    } catch (_) {}
-    nativeSetValue(search, "");
-    await sleep(200);
-    nativeSetValue(search, query);
-
-    // Tunggu hasil pencarian server stabil.
-    const start = Date.now();
-    let last = -1;
-    let stableSince = Date.now();
-    while (Date.now() - start < 7000) {
-      collect();
-      if (seen.size !== last) {
-        last = seen.size;
-        stableSince = Date.now();
-      } else if (seen.size && Date.now() - stableSince > 800) break;
-      await sleep(150);
-    }
-    // Daftar Ant Design bersifat virtual: gulir untuk memuat sisa pilihan.
-    for (const holder of document.querySelectorAll(".rc-virtual-list-holder")) {
-      if (!visible(holder)) continue;
-      for (let i = 0; i < 80; i++) {
-        const before = holder.scrollTop;
-        holder.scrollTop += Math.max(holder.clientHeight * 0.8, 60);
-        await sleep(140);
-        collect();
-        if (holder.scrollTop === before) break;
-      }
-    }
-    nativeSetValue(search, "");
-    keypress(search, "Escape", "Escape", 27);
-    return [...seen.values()];
-  }
-
-  async function copyText(value) {
-    try {
-      await navigator.clipboard.writeText(value);
-      return true;
-    } catch (_) {
-      const ta = document.createElement("textarea");
-      ta.value = value;
-      ta.style.cssText = "position:fixed;left:-9999px;top:0";
-      document.body.appendChild(ta);
-      ta.select();
-      let ok = false;
-      try {
-        ok = document.execCommand("copy");
-      } catch (_) {}
-      ta.remove();
-      return ok;
-    }
-  }
-
-  function renderClinicMedicineFinder() {
-    document.getElementById("ak-medlist-picker")?.remove();
-    const shade = document.createElement("div");
-    shade.id = "ak-medlist-picker";
-    shade.innerHTML = `<div class="ak-rp-card akm akm-finder">
-  <div class="akm-head">
-    <div class="akm-head-text"><div class="ak-rp-title">🔎 Cari Obat Klinik</div><div class="ak-rp-sub">Membaca daftar obat dari kolom Cari Obat Klinik Pintar (tidak menambahkan apa pun ke resep). Obat yang belum terdaftar bisa disalin kodenya untuk ditambahkan ke script.</div></div>
-    <button class="ak-rp-x" type="button" aria-label="Tutup">×</button>
-  </div>
-  <div class="akm-finder-body">
-    <section class="akm-sec">
-      <div class="akm-finder-bar"><input id="ak-medlist-query" type="search" placeholder="Nama obat, mis. amox, cetirizine, BPJS --" autocomplete="off"><button id="ak-medlist-go" class="akm-btn-primary" type="button">Cari</button></div>
-      <div class="akm-finder-tools"><button id="ak-medlist-audit" class="akm-btn-ghost" type="button">Cek semua obat terdaftar (${Object.keys(ITEMS).length})</button><span id="ak-medlist-status" class="akm-hint"></span></div>
-    </section>
-    <section class="akm-sec"><div id="ak-medlist-results" class="akm-finder-results"><div class="ak-preview-empty">Ketik nama obat lalu tekan Cari. Buka halaman Buat Rekam Medis pasien terlebih dahulu.</div></div></section>
-  </div>
-  <div class="akm-foot"><div class="akm-selected" id="ak-medlist-summary"></div><div class="akm-actions"><button class="akm-btn-ghost" id="ak-medlist-close" type="button">Tutup</button><button class="akm-btn-primary" id="ak-medlist-copyall" type="button" disabled>Salin semua kode baru</button></div></div>
-</div>`;
-    document.body.appendChild(shade);
-    const $ = (sel) => shade.querySelector(sel);
-    const close = () => shade.remove();
-    $(".ak-rp-x").addEventListener("click", close);
-    $("#ak-medlist-close").addEventListener("click", close);
-    const statusEl = $("#ak-medlist-status");
-    const resultsEl = $("#ak-medlist-results");
-    let newLines = [];
-    let busy = false;
-
-    const guard = async (label, fn) => {
-      if (busy || taskRunning) return notify("Tunggu proses sebelumnya selesai.", "warn", 5000);
-      busy = true;
-      statusEl.textContent = label;
-      try {
-        await fn();
-      } catch (e) {
-        resultsEl.innerHTML = `<div class="ak-preview-notes">${escapePreviewHtml(e.message || e)}. Pastikan halaman Buat Rekam Medis pasien sedang terbuka.</div>`;
-        statusEl.textContent = "";
-      } finally {
-        busy = false;
-      }
-    };
-
-    const renderRows = (rows) => {
-      newLines = rows.filter((r) => !r.key).map((r) => itemCodeLine(r));
-      $("#ak-medlist-copyall").disabled = !newLines.length;
-      $("#ak-medlist-summary").innerHTML = rows.length
-        ? `<b>${rows.length} obat</b> · ${rows.length - newLines.length} sudah terdaftar · ${newLines.length} baru`
-        : "";
-      resultsEl.innerHTML = rows.length
-        ? rows
-            .map(
-              (r, i) =>
-                `<div class="akm-finder-row"><div class="akm-finder-name"><b>${escapePreviewHtml(r.name)}</b><small>${escapePreviewHtml([r.price, r.unit && `per ${r.unit}`].filter(Boolean).join(" · ") || r.raw)}</small></div>${r.key ? `<span class="akm-tag ok">✓ ${escapePreviewHtml(r.key)}</span>` : `<button class="akm-tag new" data-copy="${i}" type="button">+ Salin kode</button>`}</div>`,
-            )
-            .join("")
-        : '<div class="ak-preview-empty">Tidak ada obat yang cocok.</div>';
-      resultsEl.querySelectorAll("[data-copy]").forEach((btn) =>
-        btn.addEventListener("click", async () => {
-          const ok = await copyText(itemCodeLine(rows[Number(btn.dataset.copy)]));
-          btn.textContent = ok ? "✓ Tersalin" : "Gagal menyalin";
-        }),
-      );
-    };
-
-    const runSearch = () =>
-      guard("Mencari di Klinik Pintar…", async () => {
-        const q = $("#ak-medlist-query").value.trim();
-        if (q.length < 2) {
-          statusEl.textContent = "Ketik minimal 2 huruf.";
-          return;
-        }
-        const found = await searchClinicMedicines(q);
-        renderRows(found.map((r) => ({ ...r, key: findRegisteredItemKey(r.name) })));
-        statusEl.textContent = `Hasil untuk "${q}"`;
-      });
-    $("#ak-medlist-go").addEventListener("click", runSearch);
-    $("#ak-medlist-query").addEventListener("keydown", (e) => {
-      if (e.key === "Enter") runSearch();
-    });
-    $("#ak-medlist-copyall").addEventListener("click", async () => {
-      const ok = await copyText(newLines.join("\n"));
-      notify(ok ? `${newLines.length} baris kode obat baru tersalin.` : "Gagal menyalin.", ok ? "success" : "warn", 6000);
-    });
-
-    // Cek apakah setiap obat di master ITEMS masih ada (nama persis) di klinik.
-    $("#ak-medlist-audit").addEventListener("click", () =>
-      guard("Mengecek obat terdaftar…", async () => {
-        const keys = Object.keys(ITEMS);
-        const missing = [];
-        for (let i = 0; i < keys.length; i++) {
-          const it = ITEMS[keys[i]];
-          statusEl.textContent = `Mengecek ${i + 1}/${keys.length}: ${it.target}`;
-          const found = await searchClinicMedicines(it.keyword);
-          if (!found.some((r) => norm(r.name) === norm(it.target))) missing.push(keys[i]);
-        }
-        resultsEl.innerHTML = missing.length
-          ? `<div class="ak-preview-notes"><b>${missing.length} obat tidak ditemukan dengan nama persis</b> (mungkin berganti nama atau stok habis):<br>${missing.map((k) => `• ${escapePreviewHtml(k)}: ${escapePreviewHtml(ITEMS[k].target)}`).join("<br>")}</div>`
-          : `<div class="akm-finder-ok">✓ Semua ${keys.length} obat terdaftar ditemukan di Klinik Pintar.</div>`;
-        $("#ak-medlist-summary").textContent = "";
-        statusEl.textContent = "Selesai.";
-      }),
-    );
-    setTimeout(() => $("#ak-medlist-query").focus(), 50);
-  }
-
-  // Update satu klik. Cek bawaan Violentmonkey memakai URL cabang main yang bisa
-  // tersimpan di cache GitHub hingga 5 menit (query ?t= diabaikan cache). Karena itu
-  // ambil SHA commit terbaru lewat API, lalu pakai URL per-commit yang selalu segar.
-  // URL berakhiran .user.js dibuka Violentmonkey sebagai halaman instal; update
-  // berikutnya tetap memakai @updateURL dari header.
-  const RILIS_API =
-    "https://api.github.com/repos/taufanmtknight-debug/klinikpintar-auto-klinik-rilis/commits/main";
-  const rilisFileUrl = (ref) =>
-    `https://raw.githubusercontent.com/taufanmtknight-debug/klinikpintar-auto-klinik-rilis/${ref}/KlinikPintar_AUTO_KLINIK.user.js`;
-
-  function isNewerVersion(remote, local) {
-    const a = String(remote).split(".").map(Number);
-    const b = String(local).split(".").map(Number);
-    for (let i = 0; i < Math.max(a.length, b.length); i++) {
-      if ((a[i] || 0) !== (b[i] || 0)) return (a[i] || 0) > (b[i] || 0);
-    }
-    return false;
-  }
-
-  async function checkForUpdate() {
-    notify("Mengecek versi terbaru…", "info", 4000);
-    let remote = null;
-    let installUrl = null;
-    try {
-      const sha = (await (await fetch(RILIS_API, { cache: "no-store" })).json())?.sha;
-      if (/^[0-9a-f]{40}$/.test(sha || "")) {
-        installUrl = rilisFileUrl(sha);
-        const res = await fetch(installUrl, { cache: "no-store" });
-        remote = (await res.text()).match(/^\/\/ @version\s+(\S+)/m)?.[1] || null;
-      }
-    } catch (_) {}
-    if (!remote) {
-      notify("Gagal mengecek update. Periksa koneksi internet lalu coba lagi.", "warn", 8000);
-      return;
-    }
-    if (!isNewerVersion(remote, VERSION)) {
-      notify(`Script sudah versi terbaru (v${VERSION}).`, "success", 6000);
-      return;
-    }
-    // Tautan biasa: tetap jalan walau browser memblokir popup setelah fetch.
-    document.getElementById("ak-update-offer")?.remove();
-    const offer = document.createElement("div");
-    offer.id = "ak-update-offer";
-    offer.innerHTML = `<b>Versi baru v${escapePreviewHtml(remote)} tersedia</b> (terpasang v${escapePreviewHtml(VERSION)})<a href="${installUrl}" target="_blank" rel="noopener">⬇ UPDATE SEKARANG</a><small>Tekan Install/Update di halaman Violentmonkey, lalu muat ulang halaman ini.</small><button type="button">Nanti</button>`;
-    offer.querySelector("a").addEventListener("click", () => setTimeout(() => offer.remove(), 500));
-    offer.querySelector("button").addEventListener("click", () => offer.remove());
-    document.body.appendChild(offer);
-  }
 
   function closeMainSubmenu() {
     const submenu = document.getElementById("auto-klinik-submenu");
@@ -6223,12 +5952,9 @@
       CHILD_SYRUP_SERIES,
       CHILD_PUYER_SERIES,
       SALEP_RACIKAN,
-      QUICK_RECIPES,
       PACKAGE_ACTIONS,
       MEDICATION_GROUP_PACKAGES,
       MEDICATION_ITEMS_FLAT,
-      MANUAL_CATEGORIES,
-      MANUAL_WEIGHT_MENUS,
       weightBands,
       bandLabel,
       isWeightInBand,
@@ -6236,14 +5962,10 @@
       getWeightRecipeTemplate,
       parseWeightKg,
       parseWeightFromVitalsText,
-      isNewerVersion,
-      parseClinicOption,
       isSyrupMedication,
       buildDrugForItem,
-      makeItemKey,
-      itemCodeLine,
-      findRegisteredItemKey,
       ANAMNESIS_SUGGESTION_RULES,
+      DIAGNOSIS_TEMPLATES,
       suggestMedicationsFromAnamnesis,
       parsePatientAge,
       formatPatientAge,
