@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Klinik Pintar - AUTO KLINIK
 // @namespace    klinikpintar-auto
-// @version      9.2.0
+// @version      9.3.0
 // @description  AUTO KLINIK untuk os.klinikpintar.id — ISPA Dewasa, Resume, Resep Manual, Paket Resep Golongan. Tidak pernah menekan Simpan otomatis.
 // @author       taufanmtknight-debug
 // @match        https://os.klinikpintar.id/*
@@ -34,7 +34,7 @@
 
   // Versi diambil dari header (GM_info) agar label launcher tidak pernah beda
   // dengan @version. Nilai cadangan WAJIB sama dengan @version (dicek oleh test).
-  const SCRIPT_VERSION_FALLBACK = "9.2.0";
+  const SCRIPT_VERSION_FALLBACK = "9.3.0";
   const VERSION =
     (typeof GM_info !== "undefined" && GM_info?.script?.version) ||
     SCRIPT_VERSION_FALLBACK;
@@ -359,20 +359,21 @@
 
   // Racikan (puyer) anak berbasis BB: tiap 5 kg -> +1 tablet tiap bahan.
   // Semua: dosis 1 bungkus, satuan Pulvis, instruksi racikan "buat 10".
-  // duration kosong = durasi tidak diisi (dokter menentukan).
+  // v9.3: semua kolom racikan wajib terisi. Durasi = 10 bungkus / frekuensi per hari
+  // (3x -> 3 hari, 2x -> 5 hari, 1x -> 10 hari), sama dengan pola Racikan ISPA.
   const CHILD_PUYER_SERIES = [
     { prefix: "ISPA_ANAK_", title: "RACIKAN ISPA", name: "puyer batuk", maxKg: 50, duration: "3", doseFreq: "3", instruction: "setelah makan", items: ["GUAIFENESIN_100", "CTM_4", "DEXAMETHASONE_05"] },
     { prefix: "DEMAM_ANAK_", title: "DEMAM ANAK", name: "puyer demam", maxKg: 50, duration: "3", doseFreq: "3", instruction: "setelah makan", items: ["PARACETAMOL_500"] },
     { prefix: "ANTIBIOTIK_ANAK_", title: "ANTIBIOTIK ANAK", name: "puyer antibiotik", maxKg: 50, duration: "3", doseFreq: "3", instruction: "setelah makan", items: ["AMOXICILLIN_500"] },
     { prefix: "MUAL_MUNTAH_ANAK_", title: "MUAL MUNTAH ANAK", name: "puyer mual muntah", maxKg: 50, duration: "3", doseFreq: "3", instruction: "setelah makan", items: ["DOMPERIDONE_10"] },
     // Cefadroxil puyer: pola jumlah tablet sama seperti Amoxicillin, tetapi 2x sehari.
-    { prefix: "CEFADROXIL_ANAK_", title: "CEFADROXIL", name: "cefadroxil", maxKg: 40, duration: "", doseFreq: "2", instruction: "setelah makan", items: ["CEFADROXIL_500"] },
+    { prefix: "CEFADROXIL_ANAK_", title: "CEFADROXIL", name: "cefadroxil", maxKg: 40, duration: "5", doseFreq: "2", instruction: "setelah makan", items: ["CEFADROXIL_500"] },
     // v7.4.2: racikan "baru" (BB <= 40 kg). Dosis/instruksi mengikuti input pengguna.
-    { prefix: "BARU_LAMBUNG_MUAL_", title: "LAMBUNG + MUAL", name: "lambung,mual", maxKg: 40, duration: "", doseFreq: "3", instruction: "ac", items: ["ANTASIDA_TABLET", "RANITIDINE_HCL"] },
-    { prefix: "BARU_MUAL_MUNTAH_", title: "MUAL MUNTAH BARU", name: "mual muntah", maxKg: 40, duration: "", doseFreq: "3", instruction: "30 menit ac", items: ["DOMPERIDONE_10"] },
-    { prefix: "BARU_AMOXICILLIN_", title: "AMOXICILLIN", name: "amoxicillin", maxKg: 40, duration: "", doseFreq: "3", instruction: "setelah makan", items: ["AMOXICILLIN_500"] },
-    { prefix: "BARU_CETIRIZINE_", title: "CETIRIZINE", name: "cetirizine", maxKg: 40, duration: "", doseFreq: "1", instruction: "setelah makan", items: ["CETIRIZINE_10"] },
-    { prefix: "BARU_BAPIL2_", title: "BAPIL 2", name: "batuk pilek 2", maxKg: 40, duration: "", doseFreq: "3", instruction: "setelah makan", items: ["DEXAMETHASONE_05", "CTM_4", "AMBROXOL_30"] },
+    { prefix: "BARU_LAMBUNG_MUAL_", title: "LAMBUNG + MUAL", name: "lambung,mual", maxKg: 40, duration: "3", doseFreq: "3", instruction: "ac", items: ["ANTASIDA_TABLET", "RANITIDINE_HCL"] },
+    { prefix: "BARU_MUAL_MUNTAH_", title: "MUAL MUNTAH BARU", name: "mual muntah", maxKg: 40, duration: "3", doseFreq: "3", instruction: "30 menit ac", items: ["DOMPERIDONE_10"] },
+    { prefix: "BARU_AMOXICILLIN_", title: "AMOXICILLIN", name: "amoxicillin", maxKg: 40, duration: "3", doseFreq: "3", instruction: "setelah makan", items: ["AMOXICILLIN_500"] },
+    { prefix: "BARU_CETIRIZINE_", title: "CETIRIZINE", name: "cetirizine", maxKg: 40, duration: "10", doseFreq: "1", instruction: "setelah makan", items: ["CETIRIZINE_10"] },
+    { prefix: "BARU_BAPIL2_", title: "BAPIL 2", name: "batuk pilek 2", maxKg: 40, duration: "3", doseFreq: "3", instruction: "setelah makan", items: ["DEXAMETHASONE_05", "CTM_4", "AMBROXOL_30"] },
   ];
 
   const RACIKAN_TEMPLATES = {};
@@ -1081,9 +1082,13 @@
   const LOG = (...args) => console.log("[AUTO KLINIK]", ...args);
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   const norm = (s) => (s || "").replace(/\s+/g, " ").trim().toLowerCase();
+  // getClientRects() kosong bila elemen ATAU salah satu induknya display:none.
+  // Tanpa cek ini, modal racikan lama yang sudah ditutup (tetap ada di DOM,
+  // induknya disembunyikan) dianggap terlihat dan ikut terisi.
   const visible = (el) =>
     !!el &&
     el.isConnected &&
+    el.getClientRects().length > 0 &&
     getComputedStyle(el).display !== "none" &&
     getComputedStyle(el).visibility !== "hidden";
 
@@ -1906,6 +1911,9 @@
   async function setRecipeInputVerified(input, value, label) {
     if (!input) throw new Error(`${label} field tidak ditemukan`);
 
+    try {
+      input.focus({ preventScroll: true });
+    } catch (_) {}
     nativeSetValue(input, String(value));
     await sleep(250);
     try {
@@ -2628,12 +2636,14 @@
   }
 
   // Sediaan syrup memakai preset Satuan Pemakaian = ml.
+  // v9.3: juga "SYR" (Cefadroxil 125 MG/5 ML SYR dulu tidak dikenali sehingga
+  // Satuan Pemakaian kosong) dan satuan botol/bottle.
   function isSyrupMedication(drug) {
     const key = norm(drug?.key || "");
+    const unit = norm(drug?.unit || "");
     return (
-      norm(drug?.unit || "") === "ml" ||
-      key.includes("5 mg/5ml syrup") ||
-      key.includes("syrup")
+      ["ml", "bottle", "botol"].includes(unit) ||
+      /syrup|sirup|\bsyr\b|suspensi|\bsusp\b/.test(key)
     );
   }
 
@@ -3184,23 +3194,89 @@
     LOG("Resep selesai diisi dan menunggu review manual sebelum Simpan Resep.");
   }
 
+  // Form racikan = kotak dialog TERKECIL yang memuat kolom "nama racikan".
+  // Bukan sekadar teks "buat racikan": modal resep juga memuat tombol
+  // "Buat Racikan Baru", sehingga bisa salah pilih modal resep.
   function findRacikanModal() {
+    const nameInputs = [
+      ...document.querySelectorAll('input:not([type="hidden"]), textarea'),
+    ].filter(
+      (i) =>
+        norm(i.getAttribute("placeholder") || "").includes("nama racikan") &&
+        visible(i),
+    );
+    const containers = [];
+    for (const input of nameInputs) {
+      const box = input.closest(
+        '.ant-modal-content, [role="dialog"], .ant-modal, .ant-drawer-content, [class*="modal"]',
+      );
+      if (box && visible(box)) containers.push(box);
+    }
+    if (containers.length) {
+      // Bila lebih dari satu (mis. animasi tutup), ambil yang paling atas di DOM.
+      return containers[containers.length - 1];
+    }
+
     const candidates = [
       ...document.querySelectorAll(
-        '[role="dialog"], .ant-modal, .ant-modal-wrap, .ant-modal-root, [class*="modal"]',
+        '[role="dialog"], .ant-modal-content, .ant-modal, [class*="modal"]',
       ),
-    ].filter(visible);
-
-    return (
-      candidates.find((m) => {
+    ]
+      .filter(visible)
+      .filter((m) => {
         const t = norm(text(m));
-        return (
-          t.includes("buat racikan") ||
-          t.includes("nama racikan") ||
-          t.includes("instruksi racikan")
-        );
-      }) || null
+        return t.includes("nama racikan") || t.includes("instruksi racikan");
+      })
+      .sort((a, b) => text(a).length - text(b).length);
+    return candidates[0] || null;
+  }
+
+  // Input yang bisa diisi di form racikan, selain kolom Cari Obat.
+  function racikanEditableInputs(modal) {
+    return [...modal.querySelectorAll('input:not([type="hidden"])')]
+      .filter(visible)
+      .filter((i) => !i.disabled && !i.readOnly)
+      .filter(
+        (i) => !norm(i.getAttribute("placeholder") || "").includes("cari obat"),
+      );
+  }
+
+  // Pilih kolom jumlah untuk bahan `target` dari input yang BARU muncul setelah
+  // bahan dipilih. Bahan lain (`otherTargets`) tidak boleh ada di baris yang sama,
+  // supaya angka tidak pernah tertulis ke baris bahan sebelumnya.
+  function pickIngredientQuantityInput(newInputs, target, otherTargets) {
+    const wanted = norm(target);
+    const others = otherTargets.map(norm).filter((t) => t && t !== wanted);
+    const inOwnRow = newInputs.filter((input) => {
+      let p = input.parentElement;
+      for (let i = 0; i < 8 && p; i++, p = p.parentElement) {
+        const t = norm(text(p));
+        if (!t.includes(wanted)) continue;
+        return !others.some((o) => t.includes(o));
+      }
+      return false;
+    });
+    const pool = inOwnRow.length ? inOwnRow : newInputs.length <= 3 ? newInputs : [];
+    const numeric = pool.filter(
+      (i) =>
+        i.type === "number" ||
+        i.inputMode === "numeric" ||
+        i.inputMode === "decimal" ||
+        /^[\d.,]*$/.test(i.value || ""),
     );
+    return numeric[0] || pool[0] || null;
+  }
+
+  function racikanValidationErrors(modal) {
+    return [
+      ...(modal?.querySelectorAll(
+        '.ant-form-item-explain-error, .ant-form-item-explain, [class*="error-message"], [class*="invalid-feedback"]',
+      ) || []),
+    ]
+      .filter(visible)
+      .map(text)
+      .filter(Boolean)
+      .join("; ");
   }
 
   function findRacikanSearch(modal) {
@@ -3372,6 +3448,20 @@
   }
 
   async function openRacikanForm() {
+    // Racikan sebelumnya harus sudah tertutup. Bila masih terbuka, racikan baru
+    // akan tercampur ke form lama (penyebab angka bahan salah di v9.2 ke bawah).
+    const stillOpen = await waitFor(
+      () => (findRacikanModal() ? null : true),
+      6000,
+      150,
+      "form racikan sebelumnya tertutup",
+    ).catch(() => false);
+    if (!stillOpen) {
+      throw new Error(
+        "Form racikan sebelumnya masih terbuka. Simpan atau tutup dulu, lalu jalankan lagi.",
+      );
+    }
+
     await openOrReusePrescriptionForm();
 
     const prescriptionModal = findPrescriptionModal() || document;
@@ -3413,15 +3503,29 @@
       ),
     ].filter(visible);
 
-    for (const opt of options) {
-      const t = norm(text(opt));
-      if (t === wanted || t.startsWith(wanted + " ") || t.includes(wanted))
-        return opt;
+    // Dropdown Ant Design kadang dirender di luar modal (portal di <body>).
+    for (const root of visibleSelectDropdowns()) {
+      options.push(
+        ...[
+          ...root.querySelectorAll(
+            '[role="option"], .ant-select-item-option, .ant-select-item',
+          ),
+        ].filter(visible),
+      );
     }
-    return null;
+
+    // Utamakan nama persis / diawali target, baru "mengandung".
+    const texts = options.map((opt) => [opt, norm(text(opt))]);
+    return (
+      texts.find(([, t]) => t === wanted)?.[0] ||
+      texts.find(([, t]) => t.startsWith(wanted + " "))?.[0] ||
+      texts.find(([, t]) => t.includes(wanted))?.[0] ||
+      null
+    );
   }
 
-  async function selectRacikanIngredient(modal, ingredient) {
+  // Pilih satu bahan racikan dan isi jumlahnya. Mengembalikan kolom jumlahnya.
+  async function selectRacikanIngredient(modal, ingredient, otherTargets = []) {
     const item = ITEMS[ingredient.item];
     if (!item)
       throw new Error(`Bahan racikan tidak ditemukan: ${ingredient.item}`);
@@ -3433,6 +3537,15 @@
       `Cari Obat racikan ${item.target}`,
     );
 
+    // Catat input yang sudah ada; baris bahan baru = input yang muncul sesudahnya.
+    const before = new Set(racikanEditableInputs(modal));
+    const newInputs = () =>
+      racikanEditableInputs(modal).filter((i) => !before.has(i));
+    const waitNewRow = (ms) =>
+      waitFor(() => (newInputs().length ? true : null), ms, 100, "baris bahan").catch(
+        () => false,
+      );
+
     try {
       search.focus();
     } catch (_) {}
@@ -3441,79 +3554,63 @@
     nativeSetValue(search, item.keyword);
     await sleep(450);
 
-    // Select ONLY from the racikan modal.
     let option = await waitFor(
       () => findRacikanTargetOption(modal, item.target),
       10000,
       100,
-      `target racikan ${item.target}`,
+      `pilihan obat ${item.target} di daftar racikan`,
     );
-
     dispatchOptionSelection(option);
-    await sleep(650);
+    let added = await waitNewRow(2500);
 
-    // Verify selection by looking for a newly created ingredient row matching target.
-    let row = findRacikanRow(modal, item.target);
-
-    // Fallback: keyboard selection in the active racikan search.
-    if (!row) {
+    // Cadangan 1: pilih lewat keyboard.
+    if (!added) {
       try {
         search.focus();
       } catch (_) {}
       keypress(search, "ArrowDown", "ArrowDown", 40);
       await sleep(160);
       keypress(search, "Enter", "Enter", 13);
-      await sleep(700);
-      row = findRacikanRow(modal, item.target);
+      added = await waitNewRow(2000);
     }
-
-    // Last fallback: re-find the LOCAL option only and click its outer wrapper.
-    if (!row) {
+    // Cadangan 2: klik pembungkus opsi.
+    if (!added) {
       option = findRacikanTargetOption(modal, item.target);
       if (option) {
         click(option);
-        await sleep(800);
-        row = findRacikanRow(modal, item.target);
+        added = await waitNewRow(2000);
       }
     }
-
-    if (!row) {
-      throw new Error(
-        `Target ${item.target} sudah ditemukan tetapi belum terpilih.`,
-      );
+    if (!added) {
+      throw new Error(`Obat ${item.target} ditemukan tetapi belum masuk ke racikan.`);
     }
+    await sleep(200); // biarkan React selesai merender baris baru
 
-    // Verify/set the ingredient quantity from the actual row inputs.
-    const qty = await waitFor(
-      () => findRacikanQuantityInput(row),
-      3500,
-      80,
-      `jumlah bahan ${item.target}`,
-    );
+    const qty =
+      pickIngredientQuantityInput(newInputs(), item.target, otherTargets) ||
+      findRacikanQuantityInput(findRacikanRow(modal, item.target));
+    if (!qty) throw new Error(`Kolom jumlah ${item.target} tidak ditemukan.`);
 
-    await setRecipeInputVerified(
-      qty,
-      ingredient.quantity,
-      `Jumlah ${item.target}`,
-    );
-
-    if (String(qty.value || "").trim() !== String(ingredient.quantity)) {
-      throw new Error(
-        `Jumlah ${item.target} belum menjadi ${ingredient.quantity}`,
-      );
-    }
-
+    await setRecipeInputVerified(qty, ingredient.quantity, `Jumlah ${item.target}`);
     LOG(`Bahan racikan OK: ${item.target} x ${ingredient.quantity}`);
+    return qty;
   }
 
+  // Mengisi header racikan. Mengembalikan daftar kolom yang diisi + cek satuan,
+  // untuk diperiksa ulang sebelum Simpan Racikan.
   async function setRacikanHeaderFields(modal, tpl) {
+    const filled = [];
+    const fill = async (input, value, label) => {
+      await setRecipeInputVerified(input, value, label);
+      filled.push({ input, value: String(value), label });
+    };
     const name = await waitFor(
       () => findFieldByPlaceholderIn(modal, ["Masukkan nama racikan"]),
       3500,
       80,
       "Nama Racikan",
     );
-    await setRecipeInputVerified(name, tpl.name, "Nama Racikan");
+    await fill(name, tpl.name, "Nama Racikan");
 
     // findLabeledInputIn mengembalikan [] bila tidak ketemu ([] bernilai truthy).
     let durationCandidates = findLabeledInputIn(modal, "Durasi (Hari)");
@@ -3521,7 +3618,7 @@
       durationCandidates = findLabeledInputIn(modal, "Durasi");
     const duration = durationCandidates?.[0];
     if (!duration) throw new Error("Kolom Durasi (Hari) tidak ditemukan");
-    await setRecipeInputVerified(duration, tpl.duration, "Durasi racikan");
+    await fill(duration, tpl.duration, "Durasi racikan");
 
     const doseInputs = await waitFor(
       () => {
@@ -3534,12 +3631,12 @@
     );
 
     // Screenshot-confirmed order: FREQUENCY × AMOUNT, e.g. 3 × 1.
-    await setRecipeInputVerified(
+    await fill(
       doseInputs[0],
       tpl.doseFreq,
       "Dosis frekuensi racikan",
     );
-    await setRecipeInputVerified(
+    await fill(
       doseInputs[1],
       tpl.doseAmount,
       "Dosis jumlah racikan",
@@ -3554,113 +3651,87 @@
       );
     }
 
-    // SATUAN PEMAKAIAN
-    // Untuk racikan, gunakan SATU kali interaksi yang sama seperti Pulvis:
-    // cek apakah sudah benar -> buka dropdown -> cari opsi target -> klik sekali.
-    // Setelah klik berhasil, JANGAN melakukan pencarian/klik ulang. Pada Ant/React
-    // node dropdown dapat dire-render sehingga verifikasi berbasis node lama dapat
-    // menghasilkan false negative dan justru menyebabkan Oles dipilih dua kali.
-    const desiredUnit = norm(tpl.unit || "Pulvis");
-    const wantOles = desiredUnit === "oles" || desiredUnit.includes("oles");
-    const wantUngt =
-      desiredUnit === "ungt" || desiredUnit.includes("unguent");
-    const unitStateKey = `__akRacikanUnitDone_${wantOles ? "oles" : wantUngt ? "ungt" : "pulvis"}`;
-
-    const getRacikanUnitControl = () => findUnitUsageControl(modal);
-
-    const racikanUnitSelected = () => {
-      const control = getRacikanUnitControl();
-      if (!control) return false;
-      const value = norm(control.value || "");
-      const ownText = norm(text(control));
-      const selected = [
-        ...(control.querySelectorAll?.(
-          '.ant-select-selection-item,.ant-select-selection-selected-value,[class*="selection-item"]',
-        ) || []),
-      ]
-        .filter(visible)
-        .map(text)
-        .join(" ");
-      const allText = `${value} ${ownText} ${norm(selected)}`;
-      return wantOles
-        ? allText.includes("oles")
+    // SATUAN PEMAKAIAN (Pulvis / Oles / Ungt)
+    // v9.3: dulu status "sudah dipilih" disimpan sebagai properti di elemen modal.
+    // Karena Klinik Pintar memakai ulang elemen modal, racikan ke-2 dan ke-3
+    // melewati langkah ini sehingga Satuan Pemakaian kosong. Sekarang status
+    // dibaca dari tampilan setiap kali, dengan satu kali coba ulang.
+    const unitLabel = tpl.unit || "Pulvis";
+    const desiredUnit = norm(unitLabel);
+    const wantOles = desiredUnit.includes("oles");
+    const wantUngt = desiredUnit === "ungt" || desiredUnit.includes("unguent");
+    const unitMatches = (t) =>
+      wantOles
+        ? t === "oles" || t.startsWith("oles ")
         : wantUngt
-          ? allText.includes("unguent") || allText.includes("ungt")
-          : allText.includes("pulvis");
+          ? t.includes("unguent") || t.includes("ungt")
+          : t === "pulvis" || t.startsWith("pulvis ");
+
+    const unitBox = () => {
+      const control = findUnitUsageControl(modal);
+      return control?.closest?.(".ant-select") || control?.parentElement || control;
+    };
+    const unitSelected = () => {
+      const box = unitBox();
+      if (!box) return false;
+      const shown = [
+        ...box.querySelectorAll(
+          '.ant-select-selection-item, .ant-select-selection-selected-value, [class*="selection-item"], [class*="single-value"]',
+        ),
+      ]
+        .map((el) => `${text(el)} ${el.getAttribute("title") || ""}`)
+        .join(" ");
+      const input = getEditableInput(box);
+      return unitMatches(norm(shown)) || unitMatches(norm(input?.value || "")) ||
+        norm(shown).split(/\s+/).some((w) => unitMatches(w));
+    };
+    const pickUnit = async () => {
+      const control = await waitFor(
+        () => findUnitUsageControl(modal),
+        3500,
+        60,
+        "kolom Satuan Pemakaian racikan",
+      );
+      dispatchPointerClick(control);
+      try {
+        control.focus?.();
+      } catch (_) {}
+      await sleep(200);
+      const option = await waitFor(
+        () =>
+          [
+            ...document.querySelectorAll(
+              '[role="option"],.ant-select-item-option,.rc-select-item-option,.ant-select-item',
+            ),
+          ]
+            .filter(visible)
+            .filter((el) => !isDangerousDeleteElement(el))
+            .find((el) => unitMatches(norm(text(el)))) || null,
+        3500,
+        60,
+        `opsi Satuan Pemakaian ${unitLabel}`,
+      );
+      try {
+        option.scrollIntoView({ block: "nearest", behavior: "auto" });
+      } catch (_) {}
+      dispatchPointerClick(option);
+      return waitFor(() => unitSelected() || null, 1800, 100, "Satuan Pemakaian")
+        .then(() => true)
+        .catch(() => false);
     };
 
-    if (!modal[unitStateKey]) {
-      // First priority: bila sudah benar, jangan sentuh dropdown lagi.
-      if (!racikanUnitSelected()) {
-        const control = await waitFor(
-          () => getRacikanUnitControl(),
-          3500,
-          60,
-          "kolom Satuan Pemakaian racikan",
-        );
-
-        // Klik pembuka dropdown SATU kali.
-        dispatchPointerClick(control);
-        try {
-          control.focus?.();
-        } catch (_) {}
-        await sleep(180);
-
-        const option = await waitFor(
-          () => {
-            const els = [
-              ...document.querySelectorAll(
-                '[role="option"],.ant-select-item-option,.rc-select-item-option,.ant-select-item,li,button,[role="button"]',
-              ),
-            ]
-              .filter(visible)
-              .filter((el) => !isDangerousDeleteElement(el));
-
-            return (
-              els.find((el) => {
-                const t = norm(text(el));
-                return wantOles
-                  ? t === "oles" || t.startsWith("oles ")
-                  : wantUngt
-                    ? t.includes("unguent") || t.includes("ungt")
-                    : t === "pulvis" || t.startsWith("pulvis ");
-              }) || null
-            );
-          },
-          3500,
-          60,
-          `opsi Satuan Pemakaian ${tpl.unit || "Pulvis"}`,
-        );
-
-        // Pilih target HANYA SEKALI. Tidak ada retry/klik kedua.
-        try {
-          option.scrollIntoView({ block: "nearest", behavior: "auto" });
-        } catch (_) {}
-        const clicked = dispatchPointerClick(option);
-        if (!clicked) {
-          throw new Error(
-            `Satuan Pemakaian ${tpl.unit || "Pulvis"} gagal diklik`,
-          );
-        }
-
-        // Beri React waktu menyelesaikan state update, tetapi jangan membuka
-        // dropdown lagi meskipun pembacaan value terlambat.
-        await sleep(500);
+    if (!unitSelected()) {
+      let ok = await pickUnit();
+      if (!ok) {
+        // Coba ulang sekali; tutup dropdown yang mungkin masih terbuka dulu.
+        keypress(document.activeElement || document.body, "Escape", "Escape", 27);
+        await sleep(250);
+        if (!unitSelected()) ok = await pickUnit();
       }
-
-      // Tandai transaksi sudah selesai. Flag ini mencegah pemilihan kedua kali
-      // pada rerender yang terjadi selama modal racikan masih terbuka.
-      modal[unitStateKey] = true;
-    }
-
-    // Verifikasi PASIF saja; tidak ada interaksi ulang. Jangan throw hanya karena
-    // Ant/React belum memperbarui node tampilan pada saat pembacaan pertama.
-    await sleep(250);
-    if (racikanUnitSelected()) {
-      LOG(`Satuan Pemakaian racikan berhasil dipilih: ${tpl.unit || "Pulvis"}`);
-    } else {
       LOG(
-        `Satuan Pemakaian ${tpl.unit || "Pulvis"} sudah diklik sekali; menunggu state React tanpa retry`,
+        ok
+          ? `Satuan Pemakaian racikan OK: ${unitLabel}`
+          : `Satuan Pemakaian ${unitLabel} belum terbaca; diperiksa lagi saat simpan`,
       );
     }
 
@@ -3670,7 +3741,7 @@
       80,
       "Instruksi Pemakaian racikan",
     );
-    await setRecipeInputVerified(
+    await fill(
       instruksi,
       tpl.instruction,
       "Instruksi Pemakaian racikan",
@@ -3682,24 +3753,56 @@
       80,
       "Instruksi Racikan",
     );
-    await setRecipeInputVerified(
+    await fill(
       instruksiRacikan,
       tpl.compoundInstruction,
       "Instruksi Racikan",
     );
 
     LOG("Header racikan berhasil diisi");
+    return { filled, unitSelected, unitLabel };
   }
 
   async function addRacikan(tpl) {
     const modal = await openRacikanForm();
+    const title = tpl.title || tpl.name || "racikan";
+    const targets = tpl.ingredients.map((i) => ITEMS[i.item]?.target || i.item);
 
+    const checks = [];
     for (const ingredient of tpl.ingredients) {
-      await selectRacikanIngredient(modal, ingredient);
+      const input = await selectRacikanIngredient(modal, ingredient, targets);
+      checks.push({
+        input,
+        value: String(ingredient.quantity),
+        label: `Jumlah ${ITEMS[ingredient.item]?.target || ingredient.item}`,
+      });
       await sleep(220);
     }
 
-    await setRacikanHeaderFields(modal, tpl);
+    const header = await setRacikanHeaderFields(modal, tpl);
+    checks.push(...header.filled);
+
+    // Periksa ulang SEMUA kolom tepat sebelum simpan: React bisa mengosongkan
+    // kolom yang diisi lebih awal saat baris lain ditambahkan.
+    const wrong = [];
+    for (const c of checks) {
+      if (!c.input?.isConnected) {
+        wrong.push(`${c.label} (kolom hilang)`);
+        continue;
+      }
+      if (String(c.input.value || "").trim() === c.value) continue;
+      try {
+        await setRecipeInputVerified(c.input, c.value, c.label);
+      } catch (_) {
+        wrong.push(`${c.label} = "${c.input.value || ""}", seharusnya ${c.value}`);
+      }
+    }
+    if (!header.unitSelected()) wrong.push(`Satuan Pemakaian belum ${header.unitLabel}`);
+    if (wrong.length) {
+      throw new Error(
+        `${title} belum disimpan karena ada kolom yang belum benar: ${wrong.join("; ")}. Perbaiki manual lalu klik Simpan Racikan.`,
+      );
+    }
 
     const save = await waitFor(
       () => findButtonByTexts(["Simpan Racikan", "Simpan racikan"], modal),
@@ -3707,10 +3810,23 @@
       80,
       "Simpan Racikan",
     );
-
     click(save);
-    await sleep(900);
-    LOG(`Racikan ${tpl.title} berhasil disimpan`);
+
+    // Pastikan form benar-benar tertutup (= tersimpan) sebelum racikan berikutnya.
+    const closed = await waitFor(
+      () => (findRacikanModal() ? null : true),
+      8000,
+      150,
+      "form racikan tertutup",
+    ).catch(() => false);
+    if (!closed) {
+      const errors = racikanValidationErrors(modal);
+      throw new Error(
+        `${title} belum tersimpan${errors ? `: ${errors}` : ""}. Periksa form racikan yang masih terbuka.`,
+      );
+    }
+    await sleep(400);
+    LOG(`Racikan ${title} berhasil disimpan`);
   }
 
   // ============================================================
@@ -4634,7 +4750,48 @@
     const pageAnamnesis = readAnamnesisFromPage();
     const shade = document.createElement("div");
     shade.id = "ak-medgroup-picker";
-    shade.innerHTML = `<div class="ak-rp-card ak-medgroup-card"><div class="ak-rp-head"><div><div class="ak-rp-title">PAKET RESEP</div><div class="ak-rp-sub">Umur, BB, dan anamnesa dibaca otomatis. Obat saran sudah dicentang: review, ubah bila perlu, lalu input.</div></div><button class="ak-rp-x" type="button">×</button></div><div class="ak-package-step"><div class="ak-rp-label">UMUR PASIEN (OTOMATIS)</div><div id="ak-medgroup-age" class="ak-package-age-auto">Membaca umur pasien...</div><div id="ak-medgroup-age-hint" class="ak-package-age-hint">Umur diambil otomatis dari identitas pasien.</div></div><div id="ak-medgroup-bb-step" class="ak-package-step"><div class="ak-rp-label">BERAT BADAN PASIEN</div><div class="ak-package-weight-manual"><input id="ak-medgroup-weight" type="number" min="0.1" max="499" step="0.1" inputmode="decimal" placeholder="Masukkan BB (kg)"><span>kg</span></div><div id="ak-medgroup-weight-source" class="ak-package-age-hint"></div><div id="ak-medgroup-group-status" class="ak-package-status">BB belum diisi</div></div><div class="ak-package-step"><div class="ak-rp-label">ANAMNESA PASIEN</div><textarea id="ak-medgroup-anamnesis" class="ak-package-anamnesis" rows="3" placeholder="Belum terbaca dari form. Ketik keluhan pasien di sini untuk mendapat saran obat."></textarea><div class="ak-package-anamnesis-bar"><span id="ak-medgroup-anamnesis-source" class="ak-package-age-hint"></span><button id="ak-medgroup-resuggest" class="ak-rp-back" type="button">↻ Baca ulang &amp; sarankan</button></div><div id="ak-medgroup-suggestion" class="ak-package-suggestion"></div></div><div class="ak-package-step"><div id="ak-medgroup-items-label" class="ak-rp-label">PILIH OBAT</div><div id="ak-medgroup-items" class="ak-rp-grid ak-package-multi-grid"></div></div><div class="ak-package-step"><div class="ak-rp-label">RESEP TINDAKAN (OPSIONAL)</div><div class="ak-rp-grid ak-package-multi-grid">${PACKAGE_ACTIONS.map((a) => `<label class="ak-package-choice"><input data-med-action="${a.key}" type="checkbox" value="${a.key}"><span>${a.label}</span></label>`).join("")}</div></div><div id="ak-medgroup-selected" class="ak-package-selected">Tentukan kategori pasien terlebih dahulu</div><div id="ak-medgroup-live-preview" class="ak-package-live-preview"></div><div class="ak-rp-foot"><div class="ak-package-note">Preview obat/racikan tampil otomatis di atas. Klik INPUT RESEP untuk mulai menginput. Script tidak menekan Simpan Resep otomatis.</div><div class="ak-package-actions"><button class="ak-rp-back" id="ak-medgroup-close" type="button">Tutup</button><button class="ak-rp-btn ak-package-run" id="ak-medgroup-run" type="button">✓ INPUT RESEP</button></div></div></div>`;
+    shade.innerHTML = `<div class="ak-rp-card ak-medgroup-card akm">
+  <div class="akm-head">
+    <div class="akm-head-text"><div class="ak-rp-title">💊 Paket Resep</div><div class="ak-rp-sub">Data pasien dan anamnesa dibaca otomatis. Obat bertanda <em class="ak-suggest-badge">saran</em> sudah dicentang. Review dulu sebelum input.</div></div>
+    <button class="ak-rp-x" type="button" aria-label="Tutup">×</button>
+  </div>
+  <div class="akm-body">
+   <div class="akm-col akm-col-left">
+    <section class="akm-sec akm-pasien">
+      <div class="akm-sec-title">👤 Pasien</div>
+      <div class="akm-stats">
+        <div class="akm-stat"><span>Umur</span><b id="ak-medgroup-age">…</b></div>
+        <label class="akm-stat akm-stat-bb" id="ak-medgroup-bb-step"><span>Berat badan</span><span class="akm-bb"><input id="ak-medgroup-weight" type="number" min="0.1" max="499" step="0.1" inputmode="decimal" placeholder="—"><i>kg</i></span></label>
+        <div class="akm-stat"><span>Kategori</span><b id="ak-medgroup-group-status" class="akm-cat">—</b></div>
+      </div>
+      <div id="ak-medgroup-weight-source" class="akm-hint"></div>
+    </section>
+    <section class="akm-sec akm-anamnesa">
+      <div class="akm-sec-title">📝 Anamnesa <button id="ak-medgroup-resuggest" class="akm-link" type="button">↻ Baca ulang</button></div>
+      <textarea id="ak-medgroup-anamnesis" class="ak-package-anamnesis" rows="3" placeholder="Belum terbaca dari form. Ketik keluhan pasien di sini untuk mendapat saran obat."></textarea>
+      <div id="ak-medgroup-anamnesis-source" class="akm-hint"></div>
+      <div id="ak-medgroup-suggestion" class="ak-package-suggestion"></div>
+    </section>
+    <section class="akm-sec akm-preview">
+      <div id="ak-medgroup-live-preview" class="ak-package-live-preview"></div>
+    </section>
+   </div>
+   <div class="akm-col akm-col-right">
+    <section class="akm-sec akm-obat">
+      <div class="akm-sec-title">💊 Pilih obat <span id="ak-medgroup-count" class="akm-count"></span></div>
+      <div id="ak-medgroup-items" class="akm-items"></div>
+    </section>
+    <section class="akm-sec akm-tindakan">
+      <div class="akm-sec-title">🩹 Resep tindakan <small>(opsional)</small></div>
+      <div class="akm-choices">${PACKAGE_ACTIONS.map((a) => `<label class="ak-package-choice"><input data-med-action="${a.key}" type="checkbox" value="${a.key}"><span class="akm-name">${a.label}</span></label>`).join("")}</div>
+    </section>
+   </div>
+  </div>
+  <div class="akm-foot">
+    <div id="ak-medgroup-selected" class="akm-selected">Belum ada obat dipilih</div>
+    <div class="akm-actions"><button class="akm-btn-ghost" id="ak-medgroup-close" type="button">Tutup</button><button class="akm-btn-primary" id="ak-medgroup-run" type="button">✓ INPUT RESEP</button></div>
+  </div>
+</div>`;
     document.body.appendChild(shade);
     const close = () => shade.remove();
     shade.querySelector(".ak-rp-x")?.addEventListener("click", close);
@@ -4643,37 +4800,30 @@
       weightSourceEl = shade.querySelector("#ak-medgroup-weight-source"),
       status = shade.querySelector("#ak-medgroup-group-status"),
       ageEl = shade.querySelector("#ak-medgroup-age"),
-      bbStep = shade.querySelector("#ak-medgroup-bb-step"),
       anamnesisEl = shade.querySelector("#ak-medgroup-anamnesis"),
       anamnesisSourceEl = shade.querySelector("#ak-medgroup-anamnesis-source"),
       suggestionEl = shade.querySelector("#ak-medgroup-suggestion"),
       items = shade.querySelector("#ak-medgroup-items"),
+      countEl = shade.querySelector("#ak-medgroup-count"),
       selectedEl = shade.querySelector("#ak-medgroup-selected");
     let ageYears = ageInfo?.ageYears ?? null;
-    const weightText = weightInfo
-      ? `${String(weightInfo.kg).replace(".", ",")} kg`
-      : "";
     if (ageInfo) {
-      ageEl.textContent = formatPatientAge(ageInfo);
-      ageEl.className = "ak-package-age-auto found";
+      ageEl.textContent =
+        [ageInfo.years ? `${ageInfo.years} th` : "", ageInfo.months ? `${ageInfo.months} bln` : ""]
+          .filter(Boolean)
+          .join(" ") || `${ageInfo.days || 0} hari`;
     } else {
-      ageEl.textContent = "Umur dari identitas belum terdeteksi";
-      ageEl.className = "ak-package-age-auto missing";
+      ageEl.textContent = "Tidak terbaca";
+      ageEl.classList.add("akm-missing");
     }
-    // Pasien >17 tahun: langkah BB disembunyikan, BB terakhir tetap ditampilkan.
-    if (weightInfo && !getMedicationPackageNeedsWeight(ageYears))
-      ageEl.textContent += ` · BB terakhir: ${weightText}`;
-    if (weightInfo) {
-      weight.value = String(weightInfo.kg);
-      weightSourceEl.textContent = `BB terakhir terbaca otomatis dari ${weightInfo.source}. Ubah bila tidak sesuai.`;
-    } else {
-      weightSourceEl.textContent =
-        "BB tidak ditemukan di halaman ini. Isi manual.";
-    }
+    const weightHint = weightInfo
+      ? `BB terakhir dari ${weightInfo.source}. Ubah bila tidak sesuai.`
+      : "BB tidak ditemukan di halaman. Isi manual.";
+    if (weightInfo) weight.value = String(weightInfo.kg);
     const setAnamnesisSource = (found) => {
       anamnesisSourceEl.textContent = found
-        ? "Dibaca dari form Anamnesa/Keluhan Utama. Boleh diubah; saran ikut berubah."
-        : "Anamnesa tidak ditemukan di halaman ini.";
+        ? "Dari form Anamnesa/Keluhan Utama. Boleh diubah, saran obat ikut berubah."
+        : "Anamnesa tidak ditemukan di halaman. Ketik keluhan untuk mendapat saran.";
     };
     anamnesisEl.value = pageAnamnesis;
     setAnamnesisSource(!!pageAnamnesis);
@@ -4723,15 +4873,19 @@
     };
 
     const renderItemsForGroup = (group) => {
-      const allowed = MEDICATION_ITEMS_FLAT.filter(
-        (i) => i.population === group || i.population === "all",
-      );
-      items.innerHTML = allowed
-        .map(
-          (i) =>
-            `<label class="ak-package-choice"><input data-med-item="${i.key}" type="checkbox" value="${i.key}" ${selectedMedicationKeys.has(i.key) ? "checked" : ""}><span>${i.label}</span>${suggestedKeys.has(i.key) ? '<em class="ak-suggest-badge">saran</em>' : ""}</label>`,
-        )
-        .join("");
+      const choice = (i) => {
+        const [name, sub] = String(i.label).split(" — ");
+        return `<label class="ak-package-choice${suggestedKeys.has(i.key) ? " akm-suggested" : ""}"><input data-med-item="${i.key}" type="checkbox" value="${i.key}" ${selectedMedicationKeys.has(i.key) ? "checked" : ""}><span class="akm-name">${escapePreviewHtml(name)}${sub ? `<small>${escapePreviewHtml(sub)}</small>` : ""}</span>${suggestedKeys.has(i.key) ? '<em class="ak-suggest-badge">saran</em>' : ""}</label>`;
+      };
+      // Dikelompokkan per golongan supaya mudah dicari; semua pilihan tetap tampil.
+      items.innerHTML = MEDICATION_GROUP_PACKAGES.map((g) => {
+        const list = g.items.filter(
+          (i) => i.population === group || i.population === "all",
+        );
+        return list.length
+          ? `<div class="akm-group"><div class="akm-group-title">${escapePreviewHtml(g.label)}</div><div class="akm-choices">${list.map(choice).join("")}</div></div>`
+          : "";
+      }).join("");
       items.querySelectorAll("[data-med-item]").forEach((x) =>
         x.addEventListener("change", () => {
           if (x.checked) {
@@ -4750,18 +4904,18 @@
       const meds = visibleLabels
         .filter((x) => selectedMedicationKeys.has(x.value))
         .map((x) => itemLabel(x.value));
-      const hiddenSelected = [...selectedMedicationKeys].filter(
+      const hiddenCount = [...selectedMedicationKeys].filter(
         (key) => !visibleLabels.some((x) => x.value === key),
-      );
+      ).length;
       const acts = [...shade.querySelectorAll("[data-med-action]:checked")]
         .map((x) => x.closest("label")?.innerText?.trim())
         .filter(Boolean);
-      const hiddenCount = hiddenSelected.length;
-      const selectedNames = [...meds, ...acts.map((x) => "Tindakan: " + x)];
-      selectedEl.textContent =
-        selectedNames.length || hiddenCount
-          ? `Dipilih (${selectedNames.length + hiddenCount}): ${selectedNames.join(" + ")}${hiddenCount ? ` + ${hiddenCount} pilihan tersimpan` : ""}`
-          : "Belum ada obat dipilih";
+      const names = [...meds, ...acts.map((x) => "Tindakan " + x)];
+      const total = names.length;
+      countEl.textContent = meds.length ? `${meds.length} dipilih` : "";
+      selectedEl.innerHTML = total
+        ? `<b>${total} dipilih</b> <span>${escapePreviewHtml(names.join(" · "))}</span>${hiddenCount ? ` <small>(+${hiddenCount} di kategori lain, tidak diinput)</small>` : ""}`
+        : "Belum ada obat dipilih";
       updateMedicationGroupLivePreview(shade, ageYears);
     };
     const showGroup = (group) => {
@@ -4772,29 +4926,31 @@
       renderItemsForGroup(group);
       updateSelected();
     };
+    const setStatus = (group, hint) => {
+      status.textContent = group === "adult" ? "DEWASA" : group === "child" ? "ANAK" : "Isi BB";
+      status.className = `akm-cat ${group || "akm-missing"}`;
+      weightSourceEl.textContent = hint;
+    };
     const refreshCategory = () => {
       const needsWeight = getMedicationPackageNeedsWeight(ageYears);
-      bbStep.style.display = needsWeight ? "block" : "none";
       if (!needsWeight) {
-        status.textContent = "Umur >17 tahun → DEWASA, BB tidak diperlukan";
-        status.className = "ak-package-status adult";
+        setStatus("adult", `Umur >17 tahun → DEWASA, BB tidak menentukan dosis. ${weightInfo ? weightHint : ""}`.trim());
         showGroup("adult");
         return "adult";
       }
       const kg = parseWeightKg(weight?.value || "");
       if (!kg) {
-        status.textContent = "Masukkan BB untuk menentukan DEWASA/ANAK";
-        status.className = "ak-package-status";
+        setStatus(null, `${ageYears == null ? "Umur tidak terbaca. " : ""}Isi BB untuk menentukan DEWASA/ANAK dan dosis. ${weightHint}`);
         currentGroup = null;
         applySuggestions(null);
-        items.innerHTML = "";
+        items.innerHTML = '<div class="ak-preview-empty">Isi berat badan dulu untuk menampilkan daftar obat.</div>';
+        countEl.textContent = "";
         selectedEl.textContent = "Menunggu BB pasien";
         updateMedicationGroupLivePreview(shade, ageYears);
         return null;
       }
       const group = getMedicationPackageGroup(kg, ageYears);
-      status.textContent = `${ageYears == null ? "Umur tidak terdeteksi; " : ""}BB ${String(kg).replace(".", ",")} kg → ${group === "adult" ? "DEWASA" : "ANAK"}`;
-      status.className = `ak-package-status ${group}`;
+      setStatus(group, `${ageYears == null ? "Umur tidak terbaca; kategori dari BB. " : ""}BB ${String(kg).replace(".", ",")} kg → dosis ${group === "adult" ? "dewasa" : "anak sesuai BB"}. ${weightHint}`);
       showGroup(group);
       return group;
     };
@@ -5201,8 +5357,231 @@
     { id: "auto-klinik-resume", label: "📋 RESUME", run: () => runTemplate("resume") },
     { id: "auto-klinik-manual", label: "💊 RESEP MANUAL", run: () => showRecipePicker() },
     { id: "auto-klinik-paket-obat", label: "💊 PAKET RESEP GOLONGAN", run: () => renderMedicationGroupPackagePicker() },
+    { id: "auto-klinik-daftar-obat", label: "🔎 CARI OBAT KLINIK", run: () => renderClinicMedicineFinder() },
     { id: "auto-klinik-update", label: "⟳ CEK UPDATE", run: () => checkForUpdate() },
   ];
+
+  // ---------------- CARI OBAT KLINIK ----------------
+  // Membaca hasil kolom "Cari Obat" Klinik Pintar (TIDAK memilih apa pun), lalu
+  // menandai obat yang sudah ada di master ITEMS dan menyiapkan baris kode untuk
+  // obat baru, supaya menambah obat cukup salin-tempel ke ITEMS.
+
+  // "BPJS -- LODIA Rp 1.397 per tablet" -> { name, unit, price, raw }
+  function parseClinicOption(raw) {
+    const t = String(raw || "").replace(/\s+/g, " ").trim();
+    const cut = t.search(/\s(?:Rp\.?\s?\d|stok\b|stock\b|sisa\b)/i);
+    return {
+      name: (cut > 0 ? t.slice(0, cut) : t).trim(),
+      unit: (t.match(/\bper\s+([a-z]+)/i)?.[1] || "").toLowerCase(),
+      price: t.match(/Rp\.?\s?[\d.,]+/i)?.[0] || "",
+      raw: t,
+    };
+  }
+
+  function makeItemKey(name) {
+    return (
+      String(name)
+        .replace(/^BPJS\s*--\s*/i, "")
+        .toUpperCase()
+        .replace(/[^A-Z0-9]+/g, "_")
+        .replace(/^_+|_+$/g, "")
+        .slice(0, 40) || "OBAT_BARU"
+    );
+  }
+
+  function guessItemUnit(name) {
+    const n = String(name).toUpperCase();
+    if (/SYR|SIRUP|SYRUP|SUSP|DROP/.test(n)) return "bottle";
+    if (/SALEP|CREAM|\bCR\b|\d\s*GR\b|ZALF|OINT/.test(n)) return "tube";
+    if (/SPUIT|HANDSCOON|STRIP|LANCET|SWAB|KASA|POT\b|PLESTER/.test(n)) return "pcs";
+    return "tablet";
+  }
+
+  function itemCodeLine(opt) {
+    const unit = opt.unit || guessItemUnit(opt.name);
+    return `    ${makeItemKey(opt.name)}: { keyword: ${JSON.stringify(opt.name)}, target: ${JSON.stringify(opt.name)}, unit: ${JSON.stringify(unit)} },`;
+  }
+
+  function findRegisteredItemKey(name) {
+    const n = norm(name);
+    return Object.keys(ITEMS).find((k) => norm(ITEMS[k].target) === n) || null;
+  }
+
+  // Ketik `query` di kolom Cari Obat form resep dan kumpulkan semua pilihan
+  // (termasuk yang baru muncul saat daftar digulir). Tidak ada yang diklik.
+  async function searchClinicMedicines(query) {
+    await openOrReusePrescriptionForm();
+    const search = await waitFor(() => findPrescriptionSearch(), 7000, 100, "kolom Cari Obat");
+    const seen = new Map();
+    const collect = () => {
+      const roots = visibleSelectDropdowns();
+      if (!roots.length && findPrescriptionModal()) roots.push(findPrescriptionModal());
+      for (const root of roots) {
+        for (const opt of root.querySelectorAll('[role="option"], .ant-select-item-option')) {
+          if (!visible(opt)) continue;
+          const parsed = parseClinicOption(text(opt));
+          if (parsed.name && !seen.has(norm(parsed.name))) seen.set(norm(parsed.name), parsed);
+        }
+      }
+    };
+    try {
+      search.focus();
+    } catch (_) {}
+    nativeSetValue(search, "");
+    await sleep(200);
+    nativeSetValue(search, query);
+
+    // Tunggu hasil pencarian server stabil.
+    const start = Date.now();
+    let last = -1;
+    let stableSince = Date.now();
+    while (Date.now() - start < 7000) {
+      collect();
+      if (seen.size !== last) {
+        last = seen.size;
+        stableSince = Date.now();
+      } else if (seen.size && Date.now() - stableSince > 800) break;
+      await sleep(150);
+    }
+    // Daftar Ant Design bersifat virtual: gulir untuk memuat sisa pilihan.
+    for (const holder of document.querySelectorAll(".rc-virtual-list-holder")) {
+      if (!visible(holder)) continue;
+      for (let i = 0; i < 80; i++) {
+        const before = holder.scrollTop;
+        holder.scrollTop += Math.max(holder.clientHeight * 0.8, 60);
+        await sleep(140);
+        collect();
+        if (holder.scrollTop === before) break;
+      }
+    }
+    nativeSetValue(search, "");
+    keypress(search, "Escape", "Escape", 27);
+    return [...seen.values()];
+  }
+
+  async function copyText(value) {
+    try {
+      await navigator.clipboard.writeText(value);
+      return true;
+    } catch (_) {
+      const ta = document.createElement("textarea");
+      ta.value = value;
+      ta.style.cssText = "position:fixed;left:-9999px;top:0";
+      document.body.appendChild(ta);
+      ta.select();
+      let ok = false;
+      try {
+        ok = document.execCommand("copy");
+      } catch (_) {}
+      ta.remove();
+      return ok;
+    }
+  }
+
+  function renderClinicMedicineFinder() {
+    document.getElementById("ak-medlist-picker")?.remove();
+    const shade = document.createElement("div");
+    shade.id = "ak-medlist-picker";
+    shade.innerHTML = `<div class="ak-rp-card akm akm-finder">
+  <div class="akm-head">
+    <div class="akm-head-text"><div class="ak-rp-title">🔎 Cari Obat Klinik</div><div class="ak-rp-sub">Membaca daftar obat dari kolom Cari Obat Klinik Pintar (tidak menambahkan apa pun ke resep). Obat yang belum terdaftar bisa disalin kodenya untuk ditambahkan ke script.</div></div>
+    <button class="ak-rp-x" type="button" aria-label="Tutup">×</button>
+  </div>
+  <div class="akm-finder-body">
+    <section class="akm-sec">
+      <div class="akm-finder-bar"><input id="ak-medlist-query" type="search" placeholder="Nama obat, mis. amox, cetirizine, BPJS --" autocomplete="off"><button id="ak-medlist-go" class="akm-btn-primary" type="button">Cari</button></div>
+      <div class="akm-finder-tools"><button id="ak-medlist-audit" class="akm-btn-ghost" type="button">Cek semua obat terdaftar (${Object.keys(ITEMS).length})</button><span id="ak-medlist-status" class="akm-hint"></span></div>
+    </section>
+    <section class="akm-sec"><div id="ak-medlist-results" class="akm-finder-results"><div class="ak-preview-empty">Ketik nama obat lalu tekan Cari. Buka halaman Buat Rekam Medis pasien terlebih dahulu.</div></div></section>
+  </div>
+  <div class="akm-foot"><div class="akm-selected" id="ak-medlist-summary"></div><div class="akm-actions"><button class="akm-btn-ghost" id="ak-medlist-close" type="button">Tutup</button><button class="akm-btn-primary" id="ak-medlist-copyall" type="button" disabled>Salin semua kode baru</button></div></div>
+</div>`;
+    document.body.appendChild(shade);
+    const $ = (sel) => shade.querySelector(sel);
+    const close = () => shade.remove();
+    $(".ak-rp-x").addEventListener("click", close);
+    $("#ak-medlist-close").addEventListener("click", close);
+    const statusEl = $("#ak-medlist-status");
+    const resultsEl = $("#ak-medlist-results");
+    let newLines = [];
+    let busy = false;
+
+    const guard = async (label, fn) => {
+      if (busy || taskRunning) return notify("Tunggu proses sebelumnya selesai.", "warn", 5000);
+      busy = true;
+      statusEl.textContent = label;
+      try {
+        await fn();
+      } catch (e) {
+        resultsEl.innerHTML = `<div class="ak-preview-notes">${escapePreviewHtml(e.message || e)}. Pastikan halaman Buat Rekam Medis pasien sedang terbuka.</div>`;
+        statusEl.textContent = "";
+      } finally {
+        busy = false;
+      }
+    };
+
+    const renderRows = (rows) => {
+      newLines = rows.filter((r) => !r.key).map((r) => itemCodeLine(r));
+      $("#ak-medlist-copyall").disabled = !newLines.length;
+      $("#ak-medlist-summary").innerHTML = rows.length
+        ? `<b>${rows.length} obat</b> · ${rows.length - newLines.length} sudah terdaftar · ${newLines.length} baru`
+        : "";
+      resultsEl.innerHTML = rows.length
+        ? rows
+            .map(
+              (r, i) =>
+                `<div class="akm-finder-row"><div class="akm-finder-name"><b>${escapePreviewHtml(r.name)}</b><small>${escapePreviewHtml([r.price, r.unit && `per ${r.unit}`].filter(Boolean).join(" · ") || r.raw)}</small></div>${r.key ? `<span class="akm-tag ok">✓ ${escapePreviewHtml(r.key)}</span>` : `<button class="akm-tag new" data-copy="${i}" type="button">+ Salin kode</button>`}</div>`,
+            )
+            .join("")
+        : '<div class="ak-preview-empty">Tidak ada obat yang cocok.</div>';
+      resultsEl.querySelectorAll("[data-copy]").forEach((btn) =>
+        btn.addEventListener("click", async () => {
+          const ok = await copyText(itemCodeLine(rows[Number(btn.dataset.copy)]));
+          btn.textContent = ok ? "✓ Tersalin" : "Gagal menyalin";
+        }),
+      );
+    };
+
+    const runSearch = () =>
+      guard("Mencari di Klinik Pintar…", async () => {
+        const q = $("#ak-medlist-query").value.trim();
+        if (q.length < 2) {
+          statusEl.textContent = "Ketik minimal 2 huruf.";
+          return;
+        }
+        const found = await searchClinicMedicines(q);
+        renderRows(found.map((r) => ({ ...r, key: findRegisteredItemKey(r.name) })));
+        statusEl.textContent = `Hasil untuk "${q}"`;
+      });
+    $("#ak-medlist-go").addEventListener("click", runSearch);
+    $("#ak-medlist-query").addEventListener("keydown", (e) => {
+      if (e.key === "Enter") runSearch();
+    });
+    $("#ak-medlist-copyall").addEventListener("click", async () => {
+      const ok = await copyText(newLines.join("\n"));
+      notify(ok ? `${newLines.length} baris kode obat baru tersalin.` : "Gagal menyalin.", ok ? "success" : "warn", 6000);
+    });
+
+    // Cek apakah setiap obat di master ITEMS masih ada (nama persis) di klinik.
+    $("#ak-medlist-audit").addEventListener("click", () =>
+      guard("Mengecek obat terdaftar…", async () => {
+        const keys = Object.keys(ITEMS);
+        const missing = [];
+        for (let i = 0; i < keys.length; i++) {
+          const it = ITEMS[keys[i]];
+          statusEl.textContent = `Mengecek ${i + 1}/${keys.length}: ${it.target}`;
+          const found = await searchClinicMedicines(it.keyword);
+          if (!found.some((r) => norm(r.name) === norm(it.target))) missing.push(keys[i]);
+        }
+        resultsEl.innerHTML = missing.length
+          ? `<div class="ak-preview-notes"><b>${missing.length} obat tidak ditemukan dengan nama persis</b> (mungkin berganti nama atau stok habis):<br>${missing.map((k) => `• ${escapePreviewHtml(k)}: ${escapePreviewHtml(ITEMS[k].target)}`).join("<br>")}</div>`
+          : `<div class="akm-finder-ok">✓ Semua ${keys.length} obat terdaftar ditemukan di Klinik Pintar.</div>`;
+        $("#ak-medlist-summary").textContent = "";
+        statusEl.textContent = "Selesai.";
+      }),
+    );
+    setTimeout(() => $("#ak-medlist-query").focus(), 50);
+  }
 
   // Update satu klik. Cek bawaan Violentmonkey memakai URL cabang main yang bisa
   // tersimpan di cache GitHub hingga 5 menit (query ?t= diabaikan cache). Karena itu
@@ -5442,6 +5821,99 @@
     #ak-update-offer button{padding:8px!important;border:1px solid #cbd5e1!important;border-radius:9px!important;background:#fff!important;color:#475569!important;}
     .ak-package-note{flex:1!important;min-width:200px!important;font:600 11px/1.5 Arial,sans-serif!important;color:#6b7280!important;}
 
+    /* ---------- Paket Resep v9.3: tata letak kartu ---------- */
+    .ak-rp-card.akm{display:flex!important;flex-direction:column!important;width:min(1120px,calc(100vw - 32px))!important;max-width:none!important;
+      height:min(900px,calc(100vh - 32px))!important;max-height:none!important;padding:0!important;overflow:hidden!important;background:#f4f6f8!important;}
+    .akm-head{display:flex!important;justify-content:space-between!important;align-items:flex-start!important;gap:12px!important;
+      padding:14px 18px!important;background:#fff!important;border-bottom:1px solid #e5e7eb!important;}
+    .akm-head .ak-rp-title{font-size:19px!important;}
+    .akm-head .ak-rp-sub{font-size:12.5px!important;line-height:1.5!important;}
+    .akm-body{flex:1!important;min-height:0!important;overflow:auto!important;padding:14px!important;display:grid!important;gap:12px!important;
+      grid-template-columns:minmax(0,5fr) minmax(0,7fr)!important;align-items:start!important;}
+    .akm-col{display:flex!important;flex-direction:column!important;gap:12px!important;min-width:0!important;}
+    .akm-sec{background:#fff!important;border:1px solid #e5e7eb!important;border-radius:12px!important;padding:12px 14px!important;min-width:0!important;}
+    .akm-preview{padding:0!important;border:0!important;background:transparent!important;}
+    .akm-sec-title{display:flex!important;align-items:center!important;gap:8px!important;margin:0 0 10px!important;
+      font:800 13px/1.3 Arial,sans-serif!important;color:#193041!important;letter-spacing:.2px!important;}
+    .akm-sec-title small{font-weight:600!important;color:#94a3b8!important;}
+    .akm-count{margin-left:auto!important;padding:2px 9px!important;border-radius:999px!important;background:#f97316!important;color:#fff!important;font-size:11px!important;}
+    .akm-count:empty{display:none!important;}
+    .akm-link{margin-left:auto!important;border:0!important;background:transparent!important;color:#ea580c!important;
+      font:700 12px Arial,sans-serif!important;cursor:pointer!important;padding:2px 4px!important;}
+    .akm-hint{margin-top:8px!important;color:#64748b!important;font:600 11.5px/1.45 Arial,sans-serif!important;}
+    .akm-stats{display:grid!important;grid-template-columns:repeat(3,minmax(0,1fr))!important;gap:8px!important;}
+    .akm-stat{display:flex!important;flex-direction:column!important;gap:4px!important;padding:9px 10px!important;border:1px solid #e2e8f0!important;
+      border-radius:10px!important;background:#f8fafc!important;min-width:0!important;}
+    .akm-stat > span:first-child{font:700 10.5px Arial,sans-serif!important;color:#64748b!important;text-transform:uppercase!important;letter-spacing:.4px!important;}
+    .akm-stat b{font:800 16px/1.2 Arial,sans-serif!important;color:#0f172a!important;}
+    .akm-stat-bb{cursor:text!important;}
+    .akm-bb{display:flex!important;align-items:baseline!important;gap:4px!important;}
+    .akm-bb input{width:100%!important;min-width:0!important;padding:0!important;border:0!important;border-bottom:2px solid #f97316!important;
+      border-radius:0!important;background:transparent!important;font:800 16px/1.2 Arial,sans-serif!important;color:#0f172a!important;outline:none!important;}
+    .akm-bb i{font:700 12px Arial,sans-serif!important;color:#64748b!important;font-style:normal!important;}
+    .akm-cat{align-self:flex-start!important;padding:2px 9px!important;border-radius:999px!important;font-size:13px!important;}
+    .akm-cat.adult{background:#ffedd5!important;color:#9a3412!important;}
+    .akm-cat.child{background:#dbeafe!important;color:#1d4ed8!important;}
+    .akm-missing{color:#b45309!important;}
+    .akm-cat.akm-missing{background:#fef3c7!important;}
+    .akm .ak-package-anamnesis{margin-top:0!important;min-height:64px!important;}
+    .akm-items{display:flex!important;flex-direction:column!important;gap:12px!important;}
+    .akm-group-title{margin:0 0 6px!important;font:800 10.5px Arial,sans-serif!important;color:#64748b!important;text-transform:uppercase!important;letter-spacing:.5px!important;}
+    .akm-choices{display:grid!important;grid-template-columns:repeat(2,minmax(0,1fr))!important;gap:6px!important;}
+    .akm .ak-package-choice{min-height:40px!important;padding:7px 10px!important;gap:9px!important;font:700 13px/1.3 Arial,sans-serif!important;color:#1e293b!important;}
+    .akm .ak-package-choice.akm-suggested{border-color:#c4b5fd!important;}
+    .akm .ak-package-choice:has(input:checked){border-color:#f97316!important;background:#fff7ed!important;box-shadow:inset 3px 0 0 #f97316!important;}
+    .akm-name{display:flex!important;flex-direction:column!important;min-width:0!important;}
+    .akm-name small{font:600 11px/1.3 Arial,sans-serif!important;color:#64748b!important;}
+    .akm .ak-package-suggestion-box{font-size:12px!important;}
+    .akm-foot{display:flex!important;align-items:center!important;gap:12px!important;padding:12px 18px!important;background:#fff!important;
+      border-top:1px solid #e5e7eb!important;box-shadow:0 -4px 14px rgba(15,23,42,.06)!important;}
+    .akm-selected{flex:1!important;min-width:0!important;font:600 12px/1.4 Arial,sans-serif!important;color:#475569!important;
+      display:-webkit-box!important;-webkit-line-clamp:2!important;-webkit-box-orient:vertical!important;overflow:hidden!important;}
+    .akm-selected b{color:#ea580c!important;}
+    .akm-actions{display:flex!important;gap:8px!important;flex:none!important;}
+    .akm-btn-ghost,.akm-btn-primary{min-height:44px!important;padding:10px 16px!important;border-radius:10px!important;cursor:pointer!important;
+      font:800 14px Arial,sans-serif!important;touch-action:manipulation!important;}
+    .akm-btn-ghost{border:1px solid #cbd5e1!important;background:#fff!important;color:#475569!important;}
+    .akm-btn-primary{border:1px solid #ea580c!important;background:#f97316!important;color:#fff!important;}
+    .akm-btn-primary:hover{background:#ea580c!important;}
+    @media (max-width:860px){
+      .akm-body{display:flex!important;flex-direction:column!important;align-items:stretch!important;padding:10px!important;gap:10px!important;}
+      .akm-col{display:contents!important;}
+      .akm-pasien{order:1!important}.akm-anamnesa{order:2!important}.akm-obat{order:3!important}.akm-tindakan{order:4!important}.akm-preview{order:5!important}
+    }
+    @media (max-width:600px){
+      #ak-medgroup-picker{align-items:stretch!important;}
+      .ak-rp-card.akm{width:100vw!important;height:100%!important;border-radius:0!important;}
+      .akm-head{padding:12px 14px!important;}
+      .akm-head .ak-rp-sub{display:none!important;}
+      .akm-choices{grid-template-columns:minmax(0,1fr)!important;}
+      .akm-stat b,.akm-bb input{font-size:15px!important;}
+      .akm-foot{flex-direction:column!important;align-items:stretch!important;padding:10px 12px!important;gap:8px!important;}
+      .akm-actions > *{flex:1!important;}
+    }
+
+    /* ---------- Cari Obat Klinik ---------- */
+    #ak-medlist-picker{position:fixed!important;inset:0!important;z-index:2147483647!important;background:rgba(0,0,0,.38)!important;
+      display:flex!important;align-items:center!important;justify-content:center!important;font-family:Arial,sans-serif!important;}
+    .ak-rp-card.akm.akm-finder{width:min(760px,calc(100vw - 32px))!important;}
+    .akm-finder-body{flex:1!important;min-height:0!important;overflow:auto!important;padding:14px!important;display:flex!important;flex-direction:column!important;gap:12px!important;}
+    .akm-finder-bar{display:flex!important;gap:8px!important;}
+    .akm-finder-bar input{flex:1!important;min-width:0!important;padding:10px 12px!important;border:1px solid #cbd5e1!important;border-radius:10px!important;
+      font:700 14px Arial,sans-serif!important;color:#0f172a!important;background:#fff!important;}
+    .akm-finder-tools{display:flex!important;align-items:center!important;gap:10px!important;flex-wrap:wrap!important;margin-top:10px!important;}
+    .akm-finder-tools .akm-btn-ghost{min-height:36px!important;padding:6px 12px!important;font-size:12px!important;}
+    .akm-finder-tools .akm-hint{margin:0!important;}
+    .akm-finder-results{display:flex!important;flex-direction:column!important;gap:6px!important;}
+    .akm-finder-row{display:flex!important;align-items:center!important;gap:10px!important;padding:9px 10px!important;border:1px solid #e2e8f0!important;border-radius:10px!important;background:#fff!important;}
+    .akm-finder-name{flex:1!important;min-width:0!important;display:flex!important;flex-direction:column!important;gap:2px!important;font:700 13px/1.35 Arial,sans-serif!important;color:#0f172a!important;}
+    .akm-finder-name small{font:600 11px Arial,sans-serif!important;color:#64748b!important;}
+    .akm-tag{flex:none!important;padding:5px 10px!important;border-radius:999px!important;font:800 11px Arial,sans-serif!important;border:0!important;}
+    .akm-tag.ok{background:#dcfce7!important;color:#166534!important;}
+    .akm-tag.new{background:#7c3aed!important;color:#fff!important;cursor:pointer!important;}
+    .akm-finder-ok{padding:12px!important;border-radius:10px!important;background:#f0fdf4!important;color:#166534!important;font:700 13px Arial,sans-serif!important;}
+    .akm-btn-primary:disabled{opacity:.45!important;cursor:not-allowed!important;}
+
     /* ---------- Preview obat terpilih ---------- */
     .ak-package-live-preview{margin-top:12px!important;}
     .ak-package-preview-meta{margin:0 0 12px!important;padding:10px 12px!important;border-radius:10px!important;background:#f8fafc!important;
@@ -5536,6 +6008,12 @@
       parseWeightKg,
       parseWeightFromVitalsText,
       isNewerVersion,
+      parseClinicOption,
+      isSyrupMedication,
+      buildDrugForItem,
+      makeItemKey,
+      itemCodeLine,
+      findRegisteredItemKey,
       ANAMNESIS_SUGGESTION_RULES,
       suggestMedicationsFromAnamnesis,
       parsePatientAge,
