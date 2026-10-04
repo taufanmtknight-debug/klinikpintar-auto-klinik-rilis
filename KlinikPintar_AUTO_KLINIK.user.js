@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Klinik Pintar - AUTO KLINIK
 // @namespace    klinikpintar-auto
-// @version      9.7.0
+// @version      9.8.0
 // @description  AUTO KLINIK untuk os.klinikpintar.id — ISPA Dewasa, Resume, Resep Manual, Paket Resep Golongan. Tidak pernah menekan Simpan otomatis.
 // @author       taufanmtknight-debug
 // @match        https://os.klinikpintar.id/*
@@ -34,7 +34,7 @@
 
   // Versi diambil dari header (GM_info) agar label launcher tidak pernah beda
   // dengan @version. Nilai cadangan WAJIB sama dengan @version (dicek oleh test).
-  const SCRIPT_VERSION_FALLBACK = "9.7.0";
+  const SCRIPT_VERSION_FALLBACK = "9.8.0";
   const VERSION =
     (typeof GM_info !== "undefined" && GM_info?.script?.version) ||
     SCRIPT_VERSION_FALLBACK;
@@ -1153,27 +1153,66 @@
   // icd   = kode yang dipilih, urut prioritas (kode pertama yang ada di daftar
   //         Klinik Pintar dipakai; ICD-10 versi 2010 bisa memakai subkode).
   // query = teks yang diketik di kolom Diagnosa untuk memunculkan pilihannya.
+  // adult/child/actions = obat & tindakan yang dicentang di Paket Resep setelah
+  // RESUME + DIAGNOSIS (key MEDICATION_GROUP_PACKAGES / PACKAGE_ACTIONS; diaudit).
+  // Isinya mengikuti template resep klinik yang sudah ada (ISPA Dewasa, GEA,
+  // Dyspepsia, Myalgia, LBP, Dermatitis, dst.).
   const DIAGNOSIS_TEMPLATES = [
-    { key: "ISPA", label: "ISPA", icd: ["J06"], query: "Acute upper respiratory infections of multiple and unspecified sites" },
-    { key: "GEA", label: "GEA (Gastroenteritis akut)", icd: ["A09", "A09.9", "A09.0"], query: "gastroenteritis" },
-    { key: "DISPEPSIA", label: "Dispepsia", icd: ["K30"], query: "dyspepsia" },
-    { key: "FEVER", label: "Fever / Demam", icd: ["R50.9", "R50"], query: "fever" },
-    { key: "DM", label: "DM tipe 2", icd: ["E11.9", "E11"], query: "non-insulin-dependent diabetes" },
-    { key: "HT", label: "Hipertensi", icd: ["I10"], query: "hypertension" },
-    { key: "IMUNISASI", label: "Imunisasi", icd: ["Z27.9", "Z27.8", "Z23.8"], query: "need for immunization" },
+    { key: "ISPA", label: "ISPA", icd: ["J06"], query: "Acute upper respiratory infections of multiple and unspecified sites",
+      adult: ["ALPARA_DEWASA", "DEXAMETHASONE_05", "VITAMIN_B_COMPLEX"], child: ["ISPA_ANAK"] },
+    { key: "FARINGITIS", label: "Faringitis akut", icd: ["J02.9", "J02"], query: "acute pharyngitis",
+      adult: ["ALPARA_DEWASA", "DEXAMETHASONE_05", "VITAMIN_B_COMPLEX"], child: ["ISPA_ANAK"] },
+    { key: "TONSILITIS", label: "Tonsilitis akut", icd: ["J03.9", "J03"], query: "acute tonsillitis",
+      adult: ["AMOXICILLIN_500_DEWASA", "DEXAMETHASONE_05"], child: ["AMOXICILLIN_500_RACIKAN_BARU"] },
+    { key: "GEA", label: "GEA (Gastroenteritis akut)", icd: ["A09", "A09.9", "A09.0"], query: "gastroenteritis",
+      adult: ["AKITA"], child: ["ZINC_ANAK", "ORALIT_ANAK"] },
+    { key: "DISPEPSIA", label: "Dispepsia", icd: ["K30"], query: "dyspepsia",
+      adult: ["ANTASIDA_DEWASA"], child: ["ANTASIDA_ANAK"] },
+    { key: "FEVER", label: "Fever / Demam", icd: ["R50.9", "R50"], query: "fever",
+      adult: ["PARACETAMOL_DEWASA"], child: ["PARACETAMOL_ANAK"] },
+    { key: "MYALGIA", label: "Myalgia", icd: ["M79.1"], query: "myalgia",
+      adult: ["PARACETAMOL_DEWASA", "VITAMIN_B_COMPLEX"], child: ["PARACETAMOL_ANAK"] },
+    { key: "LBP", label: "Low back pain (LBP)", icd: ["M54.5"], query: "low back pain",
+      adult: ["DICLOFENAC_50", "DEXAMETHASONE_05"], child: ["PARACETAMOL_ANAK"] },
+    { key: "CEPHALGIA", label: "Cephalgia / Sakit kepala", icd: ["R51"], query: "headache",
+      adult: ["PARACETAMOL_DEWASA"], child: ["PARACETAMOL_ANAK"] },
+    // Belum ada obat vertigo (mis. betahistin) di master ITEMS -> tidak ada saran obat.
+    { key: "VERTIGO", label: "Vertigo / Pusing", icd: ["R42"], query: "dizziness",
+      adult: [], child: [] },
+    { key: "DERMATITIS", label: "Dermatitis", icd: ["L30.9", "L30"], query: "dermatitis",
+      adult: ["SALEP_RACIKAN_BARU", "CETIRIZINE_10_DEWASA"], child: ["SALEP_RACIKAN_BARU", "CETIRIZINE_RACIKAN_BARU"] },
+    { key: "URTIKARIA", label: "Urtikaria / Gatal", icd: ["L50.9", "L50"], query: "urticaria",
+      adult: ["CETIRIZINE_10_DEWASA"], child: ["CETIRIZINE_RACIKAN_BARU"] },
+    { key: "DM", label: "DM tipe 2", icd: ["E11.9", "E11"], query: "non-insulin-dependent diabetes",
+      adult: ["METFORMIN_500"], child: [] },
+    { key: "HT", label: "Hipertensi", icd: ["I10"], query: "hypertension",
+      adult: ["AMLODIPINE_5"], child: [] },
+    { key: "IMUNISASI", label: "Imunisasi", icd: ["Z27.9", "Z27.8", "Z23.8"], query: "need for immunization",
+      adult: [], child: [], actions: ["IMUNISASI"] },
   ];
 
-  // RESUME + DIAGNOSIS (v9.7, uji coba): diagnosis dipilih dari Keluhan Utama.
-  // Urutan = prioritas bila beberapa cocok: keluhan akut dulu, lalu penyakit
-  // kronis, terakhir demam saja (demam + batuk = ISPA, demam + diare = GEA).
+  // RESUME + DIAGNOSIS (uji coba): diagnosis dipilih dari Keluhan Utama.
+  // tier = prioritas bila beberapa cocok (angka kecil didahulukan):
+  //   1 keluhan akut spesifik (urutan daftar: tonsil > faring > ISPA > GEA > ...)
+  //   2 penyakit kronis HT / DM -> yang DITULIS DULUAN di Keluhan Utama
+  //   3 keluhan umum (vertigo > sakit kepala > pegal)
+  //   4 demam saja (demam + batuk = ISPA, demam + diare = GEA)
   const DIAGNOSIS_FROM_COMPLAINT = [
-    { key: "ISPA", pattern: /batuk|pilek|\bflu\b|influenza|bersin|hidung\s+(?:tersumbat|mampet|meler)|ingus|\bispa\b|common cold|tenggorok\w*\s+(?:sakit|nyeri|perih|gatal)|(?:nyeri|sakit|perih|gatal)\s+(?:saat\s+)?(?:menelan|telan|tenggorok\w*)|radang\s+tenggorok\w*/ },
-    { key: "GEA", pattern: /diare|mencret|muntaber|(?:bab|berak|buang air besar)\s+(?:cair|encer)|gastroenteritis|\bgea\b/ },
-    { key: "DISPEPSIA", pattern: /\bmaa?g\b|ulu\s+hati|epigastri\w*|dispepsia|gastritis|kembung|begah|sebah|perih\s+(?:di\s+)?(?:ulu\s+hati|lambung|perut)|perut\s+perih|asam\s+lambung|\bgerd\b|mual|muntah/ },
-    { key: "IMUNISASI", pattern: /imunisasi|vaksin\w*|\bbcg\b|\bdpt\w*|\bpolio\b|\bopv\b|\bipv\b|\bpcv\b|campak\s+rubel\w*|\bmr\b|\bhb[\s-]?0\b/ },
-    { key: "HT", pattern: /hipertensi|darah\s+tinggi|tensi\s+tinggi|\bht\b|\bhtn\b/ },
-    { key: "DM", pattern: /diabetes|kencing\s+manis|gula\s+(?:darah\s+)?(?:tinggi|naik)|\bdm\b/ },
-    { key: "FEVER", pattern: /demam|febris|meriang|sumeng|(?:badan|suhu)\s+(?:terasa\s+)?panas|panas\s+(?:badan|tinggi|naik|sejak|\d)/ },
+    { key: "TONSILITIS", tier: 1, pattern: /tonsil\w*|amandel/ },
+    { key: "FARINGITIS", tier: 1, pattern: /faring\w*/ },
+    { key: "ISPA", tier: 1, pattern: /batuk|pilek|\bflu\b|influenza|bersin|hidung\s+(?:tersumbat|mampet|meler)|ingus|\bispa\b|common cold|tenggorok\w*\s+(?:sakit|nyeri|perih|gatal)|(?:nyeri|sakit|perih|gatal)\s+(?:saat\s+)?(?:menelan|telan|tenggorok\w*)|radang\s+tenggorok\w*/ },
+    { key: "GEA", tier: 1, pattern: /diare|mencret|muntaber|(?:bab|berak|buang air besar)\s+(?:cair|encer)|gastroenteritis|\bgea\b/ },
+    { key: "DISPEPSIA", tier: 1, pattern: /\bmaa?g\b|ulu\s+hati|epigastri\w*|dispepsia|gastritis|kembung|begah|sebah|perih\s+(?:di\s+)?(?:ulu\s+hati|lambung|perut)|perut\s+perih|asam\s+lambung|\bgerd\b|mual|muntah/ },
+    { key: "URTIKARIA", tier: 1, pattern: /biduran|kaligata|urtikaria|bentol|\bbidur/ },
+    { key: "DERMATITIS", tier: 1, pattern: /ruam|eksim|eksema|dermatitis|gatal/ },
+    { key: "IMUNISASI", tier: 1, pattern: /imunisasi|vaksin\w*|\bbcg\b|\bdpt\w*|\bpolio\b|\bopv\b|\bipv\b|\bpcv\b|campak\s+rubel\w*|\bmr\b|\bhb[\s-]?0\b/ },
+    { key: "LBP", tier: 1, pattern: /(?:nyeri|sakit|pegal)\s+(?:di\s+)?(?:pinggang|punggung)|low back pain|\blbp\b|encok/ },
+    { key: "HT", tier: 2, pattern: /hipertensi|darah\s+tinggi|tensi\s+tinggi|\bht\b|\bhtn\b/ },
+    { key: "DM", tier: 2, pattern: /diabetes|kencing\s+manis|gula\s+(?:darah\s+)?(?:tinggi|naik)|\bdm\b/ },
+    { key: "VERTIGO", tier: 3, pattern: /vertigo|pusing\s+berputar|kliyengan|sempoyongan|(?:ruangan|sekitar)\s+berputar/ },
+    { key: "CEPHALGIA", tier: 3, pattern: /(?:sakit|nyeri)\s+kepala|pusing|cekot|ce[fp]h?algia|migr[ae]i?n/ },
+    { key: "MYALGIA", tier: 3, pattern: /pegal|pegel|linu|(?:nyeri|sakit)\s+(?:otot|badan)|m[iy]algia/ },
+    { key: "FEVER", tier: 4, pattern: /demam|febris|meriang|sumeng|(?:badan|suhu)\s+(?:terasa\s+)?panas|panas\s+(?:badan|tinggi|naik|sejak|\d)/ },
   ];
 
   // Hasil: { key, keyword, others: [kunci lain yang juga cocok] } atau null.
@@ -1190,13 +1229,16 @@
           continue;
         }
         if (!isKeywordNegated(lower, m.index, m.index + m[0].length)) {
-          found.push({ key: d.key, keyword: m[0] });
+          found.push({ key: d.key, keyword: m[0], tier: d.tier, pos: m.index, order: found.length });
           break;
         }
       }
     }
     if (!found.length) return null;
-    return { ...found[0], others: found.slice(1).map((f) => f.key) };
+    // Tier kecil dulu; tier 2 (HT/DM) menurut posisi tulisan, tier lain menurut urutan daftar.
+    found.sort((a, b) => a.tier - b.tier || (a.tier === 2 ? a.pos - b.pos : a.order - b.order));
+    const { key, keyword } = found[0];
+    return { key, keyword, others: found.slice(1).map((f) => f.key) };
   }
 
   // Jika obat `when` disarankan, obat `drop` tidak disarankan (isi tumpang tindih).
@@ -4572,10 +4614,21 @@
 
   // Saran pilihan obat dari teks anamnesa untuk kategori `group` (adult/child).
   // Hasil: keys (urut, unik, sesuai kategori), matches (alasan), notes.
-  function suggestMedicationsFromAnamnesis(rawText, group) {
+  // options.diagnosis = entri DIAGNOSIS_TEMPLATES (dari RESUME + DIAGNOSIS):
+  // obat/tindakannya ikut disarankan, ditampilkan sebagai "Diagnosis ...".
+  function suggestMedicationsFromAnamnesis(rawText, group, options = {}) {
     const result = { keys: [], actionKeys: [], matches: [], notes: [] };
     const lower = String(rawText || "").toLowerCase().replace(/ /g, " ");
-    if (!lower.trim() || (group !== "adult" && group !== "child")) return result;
+    const dx = options.diagnosis || null;
+    if ((!lower.trim() && !dx) || (group !== "adult" && group !== "child")) return result;
+
+    if (dx) {
+      const keys = dx[group] || [];
+      const actions = dx.actions || [];
+      result.matches.push({ label: `Diagnosis ${dx.label}`, keyword: dx.icd[0], keys: [...keys], actions: [...actions] });
+      for (const k of keys) if (!result.keys.includes(k)) result.keys.push(k);
+      for (const a of actions) if (!result.actionKeys.includes(a)) result.actionKeys.push(a);
+    }
 
     for (const rule of ANAMNESIS_SUGGESTION_RULES) {
       const keys = rule[group] || [];
@@ -4720,6 +4773,17 @@
       }
     }
 
+    for (const dx of DIAGNOSIS_TEMPLATES) {
+      for (const a of dx.actions || [])
+        if (!PACKAGE_ACTIONS.some((x) => x.key === a))
+          errors.push(`Diagnosis ${dx.key}: tindakan ${a} tidak ada.`);
+      for (const group of ["adult", "child"])
+        for (const key of dx[group] || []) {
+          const item = MEDICATION_ITEMS_FLAT.find((x) => x.key === key);
+          if (!isMedicationItemAllowedForGroup(item, group))
+            errors.push(`Diagnosis ${dx.key}: obat ${key} tidak tersedia untuk ${group}.`);
+        }
+    }
     for (const rule of ANAMNESIS_SUGGESTION_RULES) {
       for (const a of rule.actions || []) {
         if (!PACKAGE_ACTIONS.some((x) => x.key === a))
@@ -5127,7 +5191,9 @@
     notify(msg, skipped.length ? "warn" : "success", 12000);
   }
 
-  function renderMedicationGroupPackagePicker() {
+  // options.diagnosis: diagnosis yang baru diisi RESUME + DIAGNOSIS (obatnya ikut dicentang).
+  function renderMedicationGroupPackagePicker(options = {}) {
+    const presetDiagnosis = options.diagnosis || null;
     const old = document.getElementById("ak-medgroup-picker");
     if (old) old.remove();
     // Baca halaman SEBELUM overlay dipasang, agar kolom milik overlay tidak ikut terbaca.
@@ -5256,7 +5322,7 @@
       for (const k of autoAdded) selectedMedicationKeys.delete(k);
       autoAdded.clear();
       if (reset) dismissed.clear();
-      const s = suggestMedicationsFromAnamnesis(anamnesisEl.value, group);
+      const s = suggestMedicationsFromAnamnesis(anamnesisEl.value, group, { diagnosis: presetDiagnosis });
       suggestedKeys = new Set(s.keys);
       for (const k of s.keys) {
         if (dismissed.has(k) || selectedMedicationKeys.has(k)) continue;
@@ -5275,7 +5341,7 @@
       renderActions();
       if (!group) {
         suggestionEl.innerHTML = `<div class="ak-preview-empty">Saran obat muncul setelah kategori DEWASA/ANAK diketahui.</div>`;
-      } else if (!anamnesisEl.value.trim()) {
+      } else if (!anamnesisEl.value.trim() && !s.matches.length) {
         suggestionEl.innerHTML = `<div class="ak-preview-empty">Keluhan Utama kosong, jadi tidak ada saran. Pilih obat manual.</div>`;
       } else if (!s.matches.length) {
         suggestionEl.innerHTML = `<div class="ak-preview-empty">Tidak ada keluhan yang dikenali. Pilih obat manual, atau tambahkan kata keluhan di kotak Keluhan Utama.</div>`;
@@ -5289,7 +5355,7 @@
         const notes = s.notes
           .map((n) => `<br><small>ⓘ ${escapePreviewHtml(n)}</small>`)
           .join("");
-        suggestionEl.innerHTML = `<div class="ak-package-suggestion-box"><div class="ak-live-preview-title">✨ SARAN OBAT & TINDAKAN DARI KELUHAN UTAMA (${group === "adult" ? "DEWASA" : "ANAK"})</div>${rows}${notes}<div class="ak-package-suggestion-warn">Saran otomatis berdasarkan kata kunci dan sudah dicentang. Dokter wajib mengevaluasi indikasi, kontraindikasi, dan riwayat alergi sebelum input.</div></div>`;
+        suggestionEl.innerHTML = `<div class="ak-package-suggestion-box"><div class="ak-live-preview-title">✨ SARAN OBAT & TINDAKAN DARI ${presetDiagnosis ? "DIAGNOSIS & " : ""}KELUHAN UTAMA (${group === "adult" ? "DEWASA" : "ANAK"})</div>${rows}${notes}<div class="ak-package-suggestion-warn">Saran otomatis berdasarkan kata kunci dan sudah dicentang. Dokter wajib mengevaluasi indikasi, kontraindikasi, dan riwayat alergi sebelum input.</div></div>`;
       }
     };
 
@@ -5568,13 +5634,17 @@
 
       if (withDiagnosis) {
         const dxLabel = (key) => DIAGNOSIS_TEMPLATES.find((d) => d.key === key)?.label || key;
+        // Satu tombol lengkap: Paket Resep langsung terbuka dengan obat/tindakan
+        // dari diagnosis + Keluhan Utama sudah dicentang. Input tetap menunggu dokter.
+        const filledDx = dxResult ? DIAGNOSIS_TEMPLATES.find((d) => d.key === dxDetected.key) : null;
+        setTimeout(() => renderMedicationGroupPackagePicker({ diagnosis: filledDx }), 300);
         if (dxResult) {
           notify(
             `RESUME + DIAGNOSIS selesai. Diagnosis: ${dxLabel(dxDetected.key)} (ICD ${dxResult.icdCode}), dari kata "${dxDetected.keyword}".` +
               (dxDetected.others.length
                 ? ` Juga cocok: ${dxDetected.others.map(dxLabel).join(", ")} — tambahkan lewat menu DIAGNOSIS bila perlu.`
                 : "") +
-              " Periksa sebelum Simpan.",
+              " Paket Resep dibuka: periksa obat lalu INPUT RESEP.",
             "success",
             14000,
           );
@@ -5677,7 +5747,7 @@
   const MAIN_MENU = [
     { id: "auto-klinik-diagnosis", label: "🩺 DIAGNOSIS", run: () => renderDiagnosisPicker() },
     { id: "auto-klinik-resume", label: "📋 RESUME", run: () => runTemplate("resume") },
-    { id: "auto-klinik-resume-dx", label: "🧪 RESUME + DIAGNOSIS", run: () => runTemplate("resume-diagnosis") },
+    { id: "auto-klinik-resume-dx", label: "🧪 RESUME + DIAGNOSIS + RESEP", run: () => runTemplate("resume-diagnosis") },
     { id: "auto-klinik-paket-obat", label: "💊 PAKET RESEP GOLONGAN", run: () => renderMedicationGroupPackagePicker() },
   ];
 
