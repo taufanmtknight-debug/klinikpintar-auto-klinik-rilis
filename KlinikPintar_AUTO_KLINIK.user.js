@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Klinik Pintar - AUTO KLINIK
 // @namespace    klinikpintar-auto
-// @version      9.3.0
+// @version      9.4.0
 // @description  AUTO KLINIK untuk os.klinikpintar.id — ISPA Dewasa, Resume, Resep Manual, Paket Resep Golongan. Tidak pernah menekan Simpan otomatis.
 // @author       taufanmtknight-debug
 // @match        https://os.klinikpintar.id/*
@@ -34,7 +34,7 @@
 
   // Versi diambil dari header (GM_info) agar label launcher tidak pernah beda
   // dengan @version. Nilai cadangan WAJIB sama dengan @version (dicek oleh test).
-  const SCRIPT_VERSION_FALLBACK = "9.3.0";
+  const SCRIPT_VERSION_FALLBACK = "9.4.0";
   const VERSION =
     (typeof GM_info !== "undefined" && GM_info?.script?.version) ||
     SCRIPT_VERSION_FALLBACK;
@@ -187,8 +187,8 @@
     DYSPEPSIA: {
       title: "DYSPEPSIA",
       medicines: [
-        { item: "ANTASIDA_TABLET", freq: "3", dose: "1", days: "10", total: "10", instruction: "SEBELUM MAKAN" },
-        { item: "PARACETAMOL_500", freq: "3", dose: "1", days: "10", total: "10", instruction: "KP NYERI; DAPAT DIULANG TIAP 4 JAM" },
+        { item: "ANTASIDA_TABLET", freq: "3", dose: "1", days: "3", total: "10", instruction: "SEBELUM MAKAN" },
+        { item: "PARACETAMOL_500", freq: "3", dose: "1", days: "3", total: "10", instruction: "KP NYERI; DAPAT DIULANG TIAP 4 JAM" },
       ],
     },
     DEMAM_DEWASA: {
@@ -200,22 +200,22 @@
     LBP: {
       title: "LBP",
       medicines: [
-        { item: "DICLOFENAC_50", freq: "3", dose: "1", days: "10", total: "10", instruction: "KP NYERI" },
-        { item: "DEXAMETHASONE_05", freq: "3", dose: "1", days: "10", total: "10", instruction: "SETELAH MAKAN" },
+        { item: "DICLOFENAC_50", freq: "3", dose: "1", days: "3", total: "10", instruction: "KP NYERI" },
+        { item: "DEXAMETHASONE_05", freq: "3", dose: "1", days: "3", total: "10", instruction: "SETELAH MAKAN" },
       ],
     },
     OA_GENU: {
       title: "OA GENU",
       medicines: [
-        { item: "DICLOFENAC_50", freq: "3", dose: "1", days: "10", total: "10", instruction: "KP NYERI" },
-        { item: "DEXAMETHASONE_05", freq: "3", dose: "1", days: "10", total: "10", instruction: "SETELAH MAKAN" },
+        { item: "DICLOFENAC_50", freq: "3", dose: "1", days: "3", total: "10", instruction: "KP NYERI" },
+        { item: "DEXAMETHASONE_05", freq: "3", dose: "1", days: "3", total: "10", instruction: "SETELAH MAKAN" },
         { item: "CALCIUM_500", freq: "1", dose: "1", days: "5", total: "5", instruction: "SETELAH MAKAN" },
       ],
     },
     MYALGIA: {
       title: "MYALGIA",
       medicines: [
-        { item: "PARACETAMOL_500", freq: "3", dose: "1", days: "10", total: "10", instruction: "KP NYERI" },
+        { item: "PARACETAMOL_500", freq: "3", dose: "1", days: "3", total: "10", instruction: "KP NYERI" },
         { item: "VITAMIN_B_COMPLEX", freq: "1", dose: "1", days: "5", total: "5", instruction: "SETELAH MAKAN" },
       ],
     },
@@ -415,7 +415,7 @@
     if (ageYears >= 4 && ageYears <= 10) {
       return {
         title: "NYERI ULU HATI ANAK 4-10 TAHUN",
-        medicines: [{ item: "ANTASIDA_TABLET", freq: "3", dose: "0.5", days: "1", total: "5", instruction: "SESUAI ATURAN PAKAI" }],
+        medicines: [{ item: "ANTASIDA_TABLET", freq: "3", dose: "0.5", days: "3", total: "5", instruction: "SESUAI ATURAN PAKAI" }],
       };
     }
     if (ageYears > 10) {
@@ -516,6 +516,20 @@
       label: "NSAID",
       items: [
         {
+          key: "IBUPROFEN_400",
+          label: "Ibuprofen 400 mg",
+          type: "recipe-inline",
+          population: "adult",
+          medicine: {
+            item: "IBUPROFEN_400",
+            freq: "3",
+            dose: "1",
+            days: "3",
+            total: "10",
+            instruction: "SETELAH MAKAN",
+          },
+        },
+        {
           key: "DICLOFENAC_50",
           label: "Natrium Diclofenac 50 mg",
           type: "recipe-inline",
@@ -524,7 +538,7 @@
             item: "DICLOFENAC_50",
             freq: "3",
             dose: "1",
-            days: "10",
+            days: "3",
             total: "10",
             instruction: "KP NYERI",
           },
@@ -544,7 +558,7 @@
             item: "DEXAMETHASONE_05",
             freq: "3",
             dose: "1",
-            days: "10",
+            days: "3",
             total: "10",
             instruction: "SETELAH MAKAN",
           },
@@ -564,7 +578,7 @@
             item: "CETIRIZINE_10",
             freq: "1",
             dose: "1",
-            days: "",
+            days: "5",
             total: "5",
             instruction: "SETELAH MAKAN",
           },
@@ -608,7 +622,7 @@
             item: "AMBROXOL_30",
             freq: "3",
             dose: "1",
-            days: "",
+            days: "3",
             total: "10",
             instruction: "SETELAH MAKAN",
           },
@@ -622,7 +636,7 @@
             item: "GUAIFENESIN_100",
             freq: "3",
             dose: "1",
-            days: "",
+            days: "3",
             total: "10",
             instruction: "SETELAH MAKAN",
           },
@@ -636,7 +650,7 @@
             item: "CTM_4",
             freq: "3",
             dose: "1",
-            days: "",
+            days: "3",
             total: "10",
             instruction: "SETELAH MAKAN",
           },
@@ -650,7 +664,7 @@
             item: "ALPARA",
             freq: "3",
             dose: "1",
-            days: "",
+            days: "3",
             total: "10",
             instruction: "SETELAH MAKAN",
           },
@@ -670,7 +684,7 @@
             item: "ANTASIDA_TABLET",
             freq: "3",
             dose: "1",
-            days: "10",
+            days: "3",
             total: "10",
             instruction: "SEBELUM MAKAN",
           },
@@ -732,9 +746,9 @@
             item: "DOMPERIDONE_10",
             freq: "3",
             dose: "1",
-            days: "",
+            days: "3",
             total: "10",
-            instruction: "SETELAH MAKAN",
+            instruction: "SEBELUM MAKAN",
           },
         },
         {
@@ -776,7 +790,7 @@
             item: "AMOXICILLIN_500",
             freq: "3",
             dose: "1",
-            days: "",
+            days: "3",
             total: "10",
             instruction: "SETELAH MAKAN",
           },
@@ -957,11 +971,12 @@
     },
   ];
 
-  // SARAN OBAT DARI ANAMNESA (Paket Resep Golongan)
-  // Kata kunci di anamnesa/keluhan -> pilihan obat (key MEDICATION_GROUP_PACKAGES)
-  // yang dicentang otomatis. Hanya SARAN: dokter tetap mereview dan bisa
-  // menghapus centang. Kata kunci yang dinegasikan ("tidak demam", "batuk (-)")
-  // diabaikan. Test memastikan setiap key ada dan cocok dengan kategorinya.
+  // SARAN OBAT DARI KELUHAN UTAMA (Paket Resep Golongan)
+  // Kata kunci di Keluhan Utama (cadangan: Anamnesa) -> pilihan obat (key
+  // MEDICATION_GROUP_PACKAGES) yang dicentang otomatis. Hanya SARAN: dokter tetap
+  // mereview dan bisa menghapus centang. Kata kunci yang dinegasikan ("tidak demam",
+  // "batuk (-)", "mual disangkal") diabaikan. Urutan aturan = urutan obat di resep.
+  // Test memastikan setiap key ada dan cocok dengan kategorinya.
   const ANAMNESIS_SUGGESTION_RULES = [
     {
       label: "Demam",
@@ -982,10 +997,41 @@
       child: ["BAPIL_2_ANAK"],
     },
     {
-      label: "Nyeri tenggorok / infeksi",
-      pattern: /radang|tonsil|amandel|faring|(?:nyeri|sakit)\s+(?:saat\s+)?(?:menelan|telan|tenggorok)|tenggorok\w*\s+(?:sakit|nyeri|perih)|bisul|abses|nanah|gigi\s+(?:bengkak|berlubang)|sakit\s+gigi/,
+      label: "Nyeri tenggorok / amandel",
+      // v9.4: "radang" saja tidak dipakai lagi ("radang sendi" dulu memicu antibiotik).
+      pattern: /radang\s+(?:tenggorok\w*|amandel|tonsil)|tonsil|amandel|faring|(?:nyeri|sakit)\s+(?:saat\s+)?(?:menelan|telan|tenggorok\w*)|tenggorok\w*\s+(?:sakit|nyeri|perih)/,
       adult: ["AMOXICILLIN_500_DEWASA", "DEXAMETHASONE_05"],
       child: ["AMOXICILLIN_500_RACIKAN_BARU"],
+    },
+    {
+      label: "Sakit telinga",
+      pattern: /(?:sakit|nyeri)\s+telinga|telinga\b[^.,;\n]{0,15}?(?:sakit|nyeri|berair|bernanah|cairan)|otitis|congek|kopok/,
+      adult: ["AMOXICILLIN_500_DEWASA", "PARACETAMOL_DEWASA"],
+      child: ["AMOXICILLIN_500_RACIKAN_BARU", "PARACETAMOL_ANAK"],
+    },
+    {
+      label: "Sinusitis",
+      pattern: /sinusitis|\bsinus\b|(?:nyeri|sakit)\s+(?:di\s+)?(?:wajah|pipi|dahi)/,
+      adult: ["AMOXICILLIN_500_DEWASA", "PARACETAMOL_DEWASA"],
+      child: ["AMOXICILLIN_500_RACIKAN_BARU", "PARACETAMOL_ANAK"],
+    },
+    {
+      label: "Sakit gigi",
+      pattern: /(?:sakit|nyeri|ngilu)\s+gigi|gigi\s+(?:sakit|nyeri|ngilu|bengkak|berlubang|goyang)|pulpitis|abses\s+gigi|gusi\s+bengkak/,
+      adult: ["IBUPROFEN_400", "AMOXICILLIN_500_DEWASA"],
+      child: ["PARACETAMOL_ANAK", "AMOXICILLIN_500_RACIKAN_BARU"],
+    },
+    {
+      label: "Infeksi saluran kemih",
+      pattern: /anyang|disuria|\bisk\b|infeksi\s+saluran\s+kemih|(?:nyeri|sakit|perih|panas)\s+(?:saat\s+)?(?:bak|kencing|berkemih|pipis)|(?:bak|kencing|pipis)\s+(?:perih|panas|sakit|nyeri)/,
+      adult: ["CEFADROXIL_500_DEWASA", "PARACETAMOL_DEWASA"],
+      child: ["CEFADROXIL_PUYER_ANAK", "PARACETAMOL_ANAK"],
+    },
+    {
+      label: "Infeksi kulit (bisul/abses)",
+      pattern: /bisul|(?<!gigi\s)abses(?!\s+gigi)|bernanah|nanah|furunkel|impetigo|selulitis|luka\s+(?:infeksi|meradang)|infeksi\s+kulit/,
+      adult: ["CEFADROXIL_500_DEWASA", "PARACETAMOL_DEWASA"],
+      child: ["CEFADROXIL_PUYER_ANAK", "PARACETAMOL_ANAK"],
     },
     {
       label: "Sakit kepala",
@@ -994,44 +1040,71 @@
       child: ["PARACETAMOL_ANAK"],
     },
     {
+      label: "Nyeri haid",
+      pattern: /(?:nyeri|sakit)\s+(?:saat\s+)?(?:haid|mens\w*)|(?:haid|mens\w*)\s+(?:nyeri|sakit)|dismenore\w*|kram\s+(?:perut\s+)?(?:saat\s+)?haid/,
+      adult: ["IBUPROFEN_400"],
+      child: ["PARACETAMOL_ANAK"],
+    },
+    {
       label: "Nyeri otot / sendi",
-      pattern: /(?:nyeri|sakit)\s+(?:otot|sendi|pinggang|punggung|lutut|bahu|leher|badan)|pegal|pegel|linu|ngilu|keseleo|terkilir|encok|m[iy]algia|art?h?ralgia|low back pain|\blbp\b/,
+      pattern: /(?:nyeri|sakit)\s+(?:otot|sendi|pinggang|punggung|bahu|leher|badan)|pegal|pegel|linu|keseleo|terkilir|encok|m[iy]algia|art?h?ralgia|low back pain|\blbp\b/,
       adult: ["DICLOFENAC_50"],
       child: ["PARACETAMOL_ANAK"],
     },
     {
+      label: "Nyeri lutut / pengapuran",
+      pattern: /(?:nyeri|sakit|ngilu)\s+(?:di\s+)?lutut|lutut\s+(?:nyeri|sakit|kaku|bengkak|ngilu)|osteoart\w*|pengapuran|\boa\s+genu\b/,
+      adult: ["DICLOFENAC_50", "CALCIUM_500"],
+      child: ["PARACETAMOL_ANAK"],
+    },
+    {
       label: "Gatal / alergi",
-      pattern: /gatal|alergi|biduran|kaligata|urtikaria|bentol|\bbidur/,
+      pattern: /gatal|alergi|biduran|kaligata|urtikaria|bentol|\bbidur|digigit\s+serangga/,
       adult: ["CETIRIZINE_10_DEWASA"],
       child: ["CETIRIZINE_RACIKAN_BARU"],
     },
     {
-      label: "Kelainan kulit",
-      pattern: /ruam|eksim|eksema|dermatitis|lecet|kurap|panu|\bjamur/,
+      label: "Eksim / dermatitis",
+      // v9.4: jamur/panu/kurap DIHAPUS — salep racikan berisi steroid (betamethasone)
+      // memperburuk infeksi jamur. "Lecet" juga dihapus.
+      pattern: /ruam|eksim|eksema|dermatitis/,
       adult: ["SALEP_RACIKAN_BARU"],
       child: ["SALEP_RACIKAN_BARU"],
     },
     {
+      label: "Cacar / campak (simptomatik)",
+      pattern: /cacar|varisela|campak|morbili/,
+      adult: ["PARACETAMOL_DEWASA", "CETIRIZINE_10_DEWASA"],
+      child: ["PARACETAMOL_ANAK", "CETIRIZINE_RACIKAN_BARU"],
+    },
+    {
       label: "Maag / ulu hati",
-      pattern: /\bmaa?g\b|ulu\s+hati|epigastri|perih|kembung|begah|sebah|dispepsia|gastritis|lambung|\bgerd\b|heartburn/,
+      // v9.4: "perih" saja tidak dipakai lagi ("kencing perih" dulu memicu antasida).
+      pattern: /\bmaa?g\b|ulu\s+hati|epigastri\w*|perih\s+(?:di\s+)?(?:ulu\s+hati|lambung|perut)|perut\s+perih|kembung|begah|sebah|dispepsia|gastritis|lambung|\bgerd\b|heartburn/,
       adult: ["ANTASIDA_DEWASA"],
       child: ["ANTASIDA_ANAK"],
     },
     {
       label: "Mual / muntah",
-      pattern: /mual|muntah|nausea|vomit/,
+      pattern: /mual|muntah|nausea|vomit|\beneg\b/,
       adult: ["DOMPERIDONE_10_DEWASA"],
       child: ["MUAL_MUNTAH_RACIKAN_BARU"],
     },
     {
       label: "Diare",
-      pattern: /diare|mencret|(?:bab|berak|buang air besar)\s+(?:cair|encer)|gastroenteritis/,
+      pattern: /diare|mencret|(?:bab|berak|buang air besar)\s+(?:cair|encer)|gastroenteritis|\bgea\b/,
       adult: ["AKITA"],
       child: ["ZINC_ANAK", "ORALIT_ANAK"],
     },
     {
+      label: "Sariawan",
+      pattern: /sariawan|stomatitis|\baft[ae]\w*/,
+      adult: ["VITAMIN_B_COMPLEX"],
+      child: [],
+    },
+    {
       label: "Hipertensi",
-      pattern: /hipertensi|darah\s+tinggi|tensi\s+tinggi|tekanan\s+darah\s+tinggi|\bht\b|\bhtn\b/,
+      pattern: /hipertensi|darah\s+tinggi|tensi\s+tinggi|\bht\b|\bhtn\b/,
       adult: ["AMLODIPINE_5"],
       child: [],
     },
@@ -1043,13 +1116,13 @@
     },
     {
       label: "Kolesterol",
-      pattern: /kolesterol|dislipid|lemak\s+darah/,
+      pattern: /kolesterol|dislipid\w*|lemak\s+darah/,
       adult: ["SIMVASTATIN_10"],
       child: [],
     },
     {
       label: "Asam urat",
-      pattern: /asam\s+urat|\bgout\b|hiperurisemi/,
+      pattern: /asam\s+urat|\bgout\b|hiperurisemi\w*/,
       adult: ["ALLOPURINOL_100"],
       child: [],
     },
@@ -1067,6 +1140,11 @@
       when: "ALPARA_DEWASA",
       drop: ["PARACETAMOL_DEWASA"],
       note: "Paracetamol tidak disarankan terpisah karena Alpara sudah mengandung paracetamol",
+    },
+    {
+      when: "IBUPROFEN_400",
+      drop: ["DICLOFENAC_50"],
+      note: "Diclofenac tidak disarankan bersamaan dengan Ibuprofen (sama-sama NSAID)",
     },
     {
       when: "BAPIL_2_ANAK",
@@ -1740,6 +1818,40 @@
   // 4. FORM RESEP & RACIKAN
   // ============================================================
 
+  // v9.4: nama obat dicocokkan sebagai NAMA UTUH, bukan potongan teks.
+  // "ALPARA" tidak cocok dengan "ALPARA FORTE" / "ALPARAX", tetapi tetap cocok
+  // dengan "ALPARA Rp 1.500 per tablet" atau baris resep "ALPARA 3 x 1".
+  const ITEM_VARIANT_SUFFIX =
+    /^\s*(?:forte|plus|extra|kids?|junior|syrup|sirup|syr|suspensi|susp|drops?|salep|krim|cream|gel|inj\w*|infus)\b/;
+  function containsItemName(normText, normTarget) {
+    if (!normTarget) return false;
+    for (let i = normText.indexOf(normTarget); i >= 0; i = normText.indexOf(normTarget, i + 1)) {
+      const before = normText[i - 1] || "";
+      const after = normText.slice(i + normTarget.length);
+      if (/[a-z0-9]/.test(before) || /^[a-z0-9]/.test(after)) continue;
+      if (ITEM_VARIANT_SUFFIX.test(after)) continue;
+      return true;
+    }
+    return false;
+  }
+
+  // Nama obat pada teks pilihan dropdown, tanpa harga/stok di belakangnya.
+  function optionItemName(normText) {
+    return normText.replace(/\s+(?:rp\.?\s*[\d.,]|stok\b|stock\b|sisa\b|harga\b).*$/, "").trim();
+  }
+
+  // Urutan prioritas pilihan: nama persis -> diawali nama utuh -> memuat nama utuh.
+  function pickBestItemOption(options, target) {
+    const wanted = norm(target);
+    const texts = [...new Set(options)].map((o) => [o, norm(text(o))]);
+    return (
+      texts.find(([, t]) => optionItemName(t) === wanted || t === wanted)?.[0] ||
+      texts.find(([, t]) => t.startsWith(wanted) && containsItemName(t, wanted))?.[0] ||
+      texts.find(([, t]) => containsItemName(t, wanted))?.[0] ||
+      null
+    );
+  }
+
   function findPrescriptionModal() {
     const candidates = [
       ...document.querySelectorAll(
@@ -1807,7 +1919,7 @@
         if (
           t === target ||
           t === norm(drug.search) ||
-          t.includes(`bpjs -- ${target}`)
+          optionItemName(t) === target
         ) {
           return opt;
         }
@@ -1816,25 +1928,36 @@
     return null;
   }
 
+  // Baris obat di form resep = elemen TERKECIL yang memuat nama obat DAN
+  // minimal 2 kolom isian. v9.4: pilihan di dropdown pencarian tidak lagi dianggap
+  // baris (dulu ikut terhitung sehingga script mengira obat sudah masuk padahal
+  // belum, lalu berhenti dengan "Field resep tidak lengkap").
+  const DROPDOWN_SCOPE =
+    '.ant-select-dropdown, .rc-select-dropdown, [role="listbox"], [role="option"], .ant-select-item';
   function medicationRowFor(drug) {
     const target = norm(drug.key);
     const modal = findPrescriptionModal() || document;
     const nodes = [...modal.querySelectorAll("div, tr, li")]
-      .filter((el) => {
-        return visible(el) && norm(text(el)).includes(target);
-      })
+      .filter(
+        (el) =>
+          !el.closest(DROPDOWN_SCOPE) &&
+          !isOwnUi(el) &&
+          containsItemName(norm(text(el)), target) &&
+          visible(el),
+      )
       .sort((a, b) => text(a).length - text(b).length);
 
     for (const el of nodes) {
       const inputs = [
         ...el.querySelectorAll('input:not([type="hidden"]), textarea'),
-      ].filter(visible);
-      const selects = [
-        ...el.querySelectorAll('.ant-select-selector, [role="combobox"]'),
-      ].filter(visible);
-      if (inputs.length >= 2 || selects.length) return el;
+      ].filter(
+        (i) =>
+          visible(i) &&
+          !norm(i.getAttribute("placeholder") || "").includes("cari obat"),
+      );
+      if (inputs.length >= 2) return el;
     }
-    return nodes[0] || null;
+    return null;
   }
 
   function visibleEditableInputsInRow(row) {
@@ -2292,14 +2415,11 @@
       return true;
     }
 
-    // Third attempt: keyboard selection from the focused control.
+    // Third attempt: Enter hanya bila opsi ini yang disorot (v9.4: dulu
+    // ArrowDown+Enter bisa memilih instruksi lain).
     const control = findInstructionControl(row);
-    try {
-      control?.focus?.();
-      if (control) keypress(control, "ArrowDown", "ArrowDown", 40);
-      await sleep(100);
-      if (control) keypress(control, "Enter", "Enter", 13);
-    } catch (_) {}
+    const focusTarget = getEditableInput(control) || control;
+    if (focusTarget) await pressEnterOnOption(focusTarget, clickable);
 
     await sleep(300);
 
@@ -2582,16 +2702,13 @@
         selected = selected || instructionSelected(row, instruction);
       }
 
-      // Fallback terakhir: keyboard hanya bila dropdown benar-benar masih aktif.
+      // Fallback terakhir: Enter hanya bila opsi target sedang disorot.
       if (!selected) {
-        try {
-          control.focus?.();
-        } catch (_) {}
-        keypress(control, "ArrowDown", "ArrowDown", 40);
-        await sleep(120);
-        keypress(control, "Enter", "Enter", 13);
-        await sleep(350);
-        selected = instructionSelected(row, instruction);
+        const option = findInstructionOptionExactText(instruction);
+        if (option && (await pressEnterOnOption(getEditableInput(control) || control, option))) {
+          await sleep(350);
+          selected = instructionSelected(row, instruction);
+        }
       }
 
       const verified = await waitFor(
@@ -2969,25 +3086,42 @@
     };
   }
 
+  // Pilihan obat di dropdown "Cari Obat". Teks pilihan bisa memuat harga/satuan
+  // ("BPJS -- LODIA Rp 1.397 per tablet"), jadi urutan prioritas:
+  // persis -> diawali nama target -> mengandung nama target.
+  // v9.4: dulu pilihan PERTAMA yang "mengandung" langsung dipakai, dan <li> di
+  // seluruh halaman ikut dicari, sehingga bisa memilih varian lain atau baris resep.
   function findExactTargetOption(target) {
     const wanted = norm(target);
-    const roots = [document, ...visibleSelectDropdowns(), ...visiblePortals()];
-    for (const root of roots) {
-      const opts = [
-        ...root.querySelectorAll(
-          '[role="option"], .ant-select-item-option, .ant-select-item, li',
-        ),
-      ].filter(visible);
-      for (const opt of opts) {
-        const t = norm(text(opt));
-        // Result text may contain price/unit after the item name, e.g.
-        // "BPJS -- LODIA Rp 1.397 per tablet". Therefore exact equality
-        // is too strict; accept the target at the beginning of the option.
-        if (t === wanted || t.startsWith(wanted + " ") || t.includes(wanted))
-          return opt;
-      }
-    }
-    return null;
+    const OPTION = '[role="option"], .ant-select-item-option, .ant-select-item';
+    let opts = [
+      ...visibleSelectDropdowns().flatMap((r) => [...r.querySelectorAll(OPTION + ", li")]),
+      ...visiblePortals().flatMap((r) => [...r.querySelectorAll(OPTION)]),
+    ];
+    if (!opts.length) opts = [...document.querySelectorAll(OPTION)];
+    return pickBestItemOption(
+      opts.filter((o) => visible(o) && !isOwnUi(o) && !o.closest(".ant-select-selector")),
+      wanted,
+    );
+  }
+
+  // Cadangan keyboard yang AMAN: Enter hanya ditekan bila opsi target sedang
+  // disorot. v9.4: dulu ArrowDown+Enter — di Ant Design opsi pertama sudah
+  // tersorot, jadi ArrowDown memindah sorotan dan Enter bisa memasukkan obat LAIN.
+  async function pressEnterOnOption(search, option) {
+    const item = option?.closest?.('.ant-select-item-option, [role="option"]') || option;
+    if (!item) return false;
+    try {
+      for (const type of ["mouseover", "mouseenter", "mousemove"])
+        item.dispatchEvent(new MouseEvent(type, { bubbles: true, cancelable: true }));
+    } catch (_) {}
+    await sleep(120);
+    if (!/\bant-select-item-option-active\b/.test(String(item.className || ""))) return false;
+    try {
+      search.focus();
+    } catch (_) {}
+    keypress(search, "Enter", "Enter", 13);
+    return true;
   }
 
   function dispatchOptionSelection(option) {
@@ -3063,33 +3197,27 @@
       `target ${drug.key}`,
     );
 
-    // First attempt: select the actual OUTER option with a full pointer sequence.
+    const waitRow = (ms) =>
+      waitFor(() => medicationRowFor(drug), ms, 120, `baris ${drug.key}`).catch(() => null);
+
+    // Percobaan 1: klik opsi (pembungkus luar) dengan urutan pointer lengkap,
+    // lalu tunggu baris obat muncul (server kadang lambat).
     dispatchOptionSelection(option);
-    await sleep(700);
-
-    // Verify success by looking for the newly created medication row.
-    let row = medicationRowFor(drug);
+    let row = await waitRow(2500);
     if (row) return row;
 
-    // Fallback: Ant Design combobox usually accepts ArrowDown + Enter.
-    try {
-      search.focus();
-    } catch (_) {}
-    keypress(search, "ArrowDown", "ArrowDown", 40);
-    await sleep(180);
-    keypress(search, "Enter", "Enter", 13);
-    await sleep(700);
-
-    row = medicationRowFor(drug);
-    if (row) return row;
-
-    // Last fallback: click the exact option wrapper again, never just its span.
-    const retryOption =
-      findExactTargetOption(drug.key) || findDrugOptionExact(drug);
+    // Percobaan 2: klik ulang opsi yang sama (dicari ulang; React bisa merender ulang).
+    let retryOption = findExactTargetOption(drug.key) || findDrugOptionExact(drug);
     if (retryOption) {
       click(retryOption);
-      await sleep(800);
-      row = medicationRowFor(drug);
+      row = await waitRow(2500);
+      if (row) return row;
+    }
+
+    // Percobaan 3: Enter, HANYA bila opsi target yang sedang disorot.
+    retryOption = findExactTargetOption(drug.key) || findDrugOptionExact(drug);
+    if (retryOption && (await pressEnterOnOption(search, retryOption))) {
+      row = await waitRow(2500);
       if (row) return row;
     }
 
@@ -3161,12 +3289,23 @@
     );
   }
 
+  // Mengembalikan daftar obat yang dilewati karena SUDAH ADA di form resep.
   async function addRecipeItems(medicines) {
     await openOrReusePrescriptionForm();
+    const alreadyInRecipe = [];
+    const added = [];
 
     for (let i = 0; i < medicines.length; i++) {
       const recipe = medicines[i];
       const drug = buildDrugForItem(recipe.item, recipe);
+      // v9.4: obat yang sudah ada di resep (mis. dari "Ubah Obat" atau paket
+      // sebelumnya) tidak ditambahkan lagi. Dulu baris lama itulah yang ikut
+      // terdeteksi, sehingga isiannya tertimpa dan obat bisa dobel.
+      if (medicationRowFor(drug)) {
+        alreadyInRecipe.push(drug.key);
+        LOG(`Resep ${i + 1}/${medicines.length}: ${drug.key} sudah ada di resep -> dilewati`);
+        continue;
+      }
       const search = await waitFor(
         () => findPrescriptionSearch(),
         7000,
@@ -3177,21 +3316,27 @@
       LOG(`Resep ${i + 1}/${medicines.length}: ${drug.key}`);
       await selectTargetDrug(search, drug);
       await configureMedicationRow(drug);
+      added.push(drug);
       await sleep(180);
     }
 
-    const missing = medicines
-      .map((r) => buildDrugForItem(r.item, r))
-      .filter((d) => !medicationRowFor(d))
-      .map((d) => d.key);
-
+    const missing = added.filter((d) => !medicationRowFor(d)).map((d) => d.key);
     if (missing.length)
       throw new Error("Obat/item belum lengkap: " + missing.join(", "));
+
+    if (alreadyInRecipe.length) {
+      notify(
+        `Sudah ada di resep, tidak ditambahkan lagi (periksa dosisnya): ${alreadyInRecipe.map((k) => k.replace(/^BPJS -- /, "")).join(", ")}.`,
+        "warn",
+        12000,
+      );
+    }
 
     // Sengaja TIDAK menekan tombol Simpan Resep otomatis.
     // Modal tetap terbuka agar dokter dapat meninjau dan mengoreksi resep terlebih dahulu.
     // Notifikasi "selesai" dikirim oleh pemanggil (satu notifikasi per proses).
     LOG("Resep selesai diisi dan menunggu review manual sebelum Simpan Resep.");
+    return { alreadyInRecipe };
   }
 
   // Form racikan = kotak dialog TERKECIL yang memuat kolom "nama racikan".
@@ -3300,7 +3445,7 @@
     const wanted = norm(target);
     const nodes = [...modal.querySelectorAll("div, tr, li")]
       .filter(visible)
-      .filter((el) => norm(text(el)).includes(wanted))
+      .filter((el) => containsItemName(norm(text(el)), wanted))
       .sort((a, b) => text(a).length - text(b).length);
 
     for (const el of nodes) {
@@ -3514,14 +3659,8 @@
       );
     }
 
-    // Utamakan nama persis / diawali target, baru "mengandung".
-    const texts = options.map((opt) => [opt, norm(text(opt))]);
-    return (
-      texts.find(([, t]) => t === wanted)?.[0] ||
-      texts.find(([, t]) => t.startsWith(wanted + " "))?.[0] ||
-      texts.find(([, t]) => t.includes(wanted))?.[0] ||
-      null
-    );
+    // Utamakan nama persis, lalu nama utuh (bukan "ALPARA FORTE" untuk "ALPARA").
+    return pickBestItemOption(options, wanted);
   }
 
   // Pilih satu bahan racikan dan isi jumlahnya. Mengembalikan kolom jumlahnya.
@@ -3563,15 +3702,12 @@
     dispatchOptionSelection(option);
     let added = await waitNewRow(2500);
 
-    // Cadangan 1: pilih lewat keyboard.
+    // Cadangan 1: Enter, hanya bila opsi target sedang disorot (v9.4; dulu
+    // ArrowDown+Enter bisa memasukkan bahan LAIN ke racikan).
     if (!added) {
-      try {
-        search.focus();
-      } catch (_) {}
-      keypress(search, "ArrowDown", "ArrowDown", 40);
-      await sleep(160);
-      keypress(search, "Enter", "Enter", 13);
-      added = await waitNewRow(2000);
+      option = findRacikanTargetOption(modal, item.target);
+      if (option && (await pressEnterOnOption(search, option)))
+        added = await waitNewRow(2000);
     }
     // Cadangan 2: klik pembungkus opsi.
     if (!added) {
@@ -3977,28 +4113,55 @@
     return kg ? { kg, source: "teks Tanda-Tanda Vital" } : null;
   }
 
-  // Isi teks kolom form berlabel `label` (input/textarea saja), "" bila tidak ada.
+  // Isi teks kolom form berlabel `label`, "" bila tidak ada.
+  // v9.4: selain input/textarea juga editor teks (contenteditable) dan pilihan
+  // bertipe tag (Ant Select), karena Keluhan Utama bisa dirender sebagai salah satunya.
   function readFieldText(label) {
     try {
       const control =
         nearbyControlFromLabel(label) || findInputByPlaceholder([label]);
       const input = getEditableInput(control);
-      if (!input || isOwnUi(input)) return "";
-      return String(input.value || "").trim();
+      const value = input && !isOwnUi(input) ? String(input.value || "").trim() : "";
+      if (value) return value;
+
+      for (const l of labelElements(label)) {
+        if (isOwnUi(l)) continue;
+        let p = l.parentElement;
+        for (let i = 0; i < 5 && p; i++, p = p.parentElement) {
+          // Berhenti di kontrol TERDEKAT agar tidak membaca kolom lain di bawahnya.
+          const controls = [
+            ...p.querySelectorAll(
+              'textarea, input:not([type="hidden"]), [contenteditable="true"], .ant-select-selection-item',
+            ),
+          ].filter((e) => visible(e) && !isOwnUi(e));
+          if (!controls.length) continue;
+          const first = controls[0];
+          if (first.matches(".ant-select-selection-item")) {
+            return controls
+              .filter((e) => e.matches(".ant-select-selection-item"))
+              .map((e) => text(e))
+              .filter(Boolean)
+              .join(", ");
+          }
+          return String(
+            first.value ?? first.innerText ?? first.textContent ?? "",
+          ).trim();
+        }
+      }
+      return value;
     } catch (_) {
       return "";
     }
   }
 
-  // Anamnesa + Keluhan Utama dari form rekam medis (keduanya bila berbeda).
-  function readAnamnesisFromPage() {
-    const parts = [];
-    for (const label of ["Anamnesa", "Keluhan Utama"]) {
-      const value = readFieldText(label);
-      if (value && !parts.some((p) => norm(p).includes(norm(value))))
-        parts.push(value);
-    }
-    return parts.join("\n");
+  // v9.4: saran obat dibaca dari KELUHAN UTAMA. Anamnesa hanya cadangan bila
+  // Keluhan Utama kosong (anamnesa sering memuat riwayat yang bukan keluhan saat ini).
+  function readChiefComplaintFromPage() {
+    const chief = readFieldText("Keluhan Utama");
+    if (chief) return { text: chief, source: "Keluhan Utama" };
+    const anamnesis = readFieldText("Anamnesa");
+    if (anamnesis) return { text: anamnesis, source: "Anamnesa (Keluhan Utama kosong)" };
+    return { text: "", source: "" };
   }
 
   // Cari template yang rentang BB-nya memuat weightKg (lihat weightBands).
@@ -4184,8 +4347,9 @@
       )
     )
       return true;
-    const after = lowerText.slice(end, end + 25);
-    return /^[a-z]*\s*(?::\s*)?(?:\(\s*-\s*\)|\(\s*neg|-\s*(?:[,.;\n]|$)|negatif|disangkal)/.test(
+    const after = lowerText.slice(end, end + 40);
+    // v9.4: penanda negasi boleh berjarak 2 kata ("alergi obat disangkal", "demam tidak ada").
+    return /^[a-z]*(?:\s+[a-z]+){0,2}\s*(?::\s*)?(?:\(\s*-\s*\)|\(\s*neg|-\s*(?:[,.;\n]|$)|negatif|disangkal|tidak\s+ada)/.test(
       after,
     );
   }
@@ -4747,12 +4911,12 @@
     // Baca halaman SEBELUM overlay dipasang, agar kolom milik overlay tidak ikut terbaca.
     const ageInfo = getPatientAgeFromIdentity();
     const weightInfo = getPatientWeightFromLatestVitals();
-    const pageAnamnesis = readAnamnesisFromPage();
+    const pageComplaint = readChiefComplaintFromPage();
     const shade = document.createElement("div");
     shade.id = "ak-medgroup-picker";
     shade.innerHTML = `<div class="ak-rp-card ak-medgroup-card akm">
   <div class="akm-head">
-    <div class="akm-head-text"><div class="ak-rp-title">💊 Paket Resep</div><div class="ak-rp-sub">Data pasien dan anamnesa dibaca otomatis. Obat bertanda <em class="ak-suggest-badge">saran</em> sudah dicentang. Review dulu sebelum input.</div></div>
+    <div class="akm-head-text"><div class="ak-rp-title">💊 Paket Resep</div><div class="ak-rp-sub">Data pasien dan Keluhan Utama dibaca otomatis. Obat bertanda <em class="ak-suggest-badge">saran</em> sudah dicentang. Review dulu sebelum input.</div></div>
     <button class="ak-rp-x" type="button" aria-label="Tutup">×</button>
   </div>
   <div class="akm-body">
@@ -4767,8 +4931,8 @@
       <div id="ak-medgroup-weight-source" class="akm-hint"></div>
     </section>
     <section class="akm-sec akm-anamnesa">
-      <div class="akm-sec-title">📝 Anamnesa <button id="ak-medgroup-resuggest" class="akm-link" type="button">↻ Baca ulang</button></div>
-      <textarea id="ak-medgroup-anamnesis" class="ak-package-anamnesis" rows="3" placeholder="Belum terbaca dari form. Ketik keluhan pasien di sini untuk mendapat saran obat."></textarea>
+      <div class="akm-sec-title">📝 Keluhan Utama <button id="ak-medgroup-resuggest" class="akm-link" type="button">↻ Baca ulang</button></div>
+      <textarea id="ak-medgroup-anamnesis" class="ak-package-anamnesis" rows="3" placeholder="Keluhan Utama belum terbaca dari form. Ketik keluhan pasien di sini untuk mendapat saran obat."></textarea>
       <div id="ak-medgroup-anamnesis-source" class="akm-hint"></div>
       <div id="ak-medgroup-suggestion" class="ak-package-suggestion"></div>
     </section>
@@ -4820,13 +4984,13 @@
       ? `BB terakhir dari ${weightInfo.source}. Ubah bila tidak sesuai.`
       : "BB tidak ditemukan di halaman. Isi manual.";
     if (weightInfo) weight.value = String(weightInfo.kg);
-    const setAnamnesisSource = (found) => {
-      anamnesisSourceEl.textContent = found
-        ? "Dari form Anamnesa/Keluhan Utama. Boleh diubah, saran obat ikut berubah."
-        : "Anamnesa tidak ditemukan di halaman. Ketik keluhan untuk mendapat saran.";
+    const setAnamnesisSource = (source) => {
+      anamnesisSourceEl.textContent = source
+        ? `Dari form ${source}. Boleh diubah, saran obat ikut berubah.`
+        : "Keluhan Utama tidak ditemukan di halaman. Ketik keluhan untuk mendapat saran.";
     };
-    anamnesisEl.value = pageAnamnesis;
-    setAnamnesisSource(!!pageAnamnesis);
+    anamnesisEl.value = pageComplaint.text;
+    setAnamnesisSource(pageComplaint.source);
 
     // Simpan pilihan obat lintas perubahan kategori. Obat yang tidak sesuai kategori
     // hanya disembunyikan, bukan dihapus dari state, sehingga ketika BB diubah kembali
@@ -4855,9 +5019,9 @@
       if (!group) {
         suggestionEl.innerHTML = `<div class="ak-preview-empty">Saran obat muncul setelah kategori DEWASA/ANAK diketahui.</div>`;
       } else if (!anamnesisEl.value.trim()) {
-        suggestionEl.innerHTML = `<div class="ak-preview-empty">Anamnesa kosong, jadi tidak ada saran. Pilih obat manual.</div>`;
+        suggestionEl.innerHTML = `<div class="ak-preview-empty">Keluhan Utama kosong, jadi tidak ada saran. Pilih obat manual.</div>`;
       } else if (!s.matches.length) {
-        suggestionEl.innerHTML = `<div class="ak-preview-empty">Tidak ada keluhan yang dikenali dari anamnesa. Pilih obat manual.</div>`;
+        suggestionEl.innerHTML = `<div class="ak-preview-empty">Tidak ada keluhan yang dikenali. Pilih obat manual, atau tambahkan kata keluhan di kotak Keluhan Utama.</div>`;
       } else {
         const rows = s.matches
           .map(
@@ -4868,7 +5032,7 @@
         const notes = s.notes
           .map((n) => `<br><small>ⓘ ${escapePreviewHtml(n)}</small>`)
           .join("");
-        suggestionEl.innerHTML = `<div class="ak-package-suggestion-box"><div class="ak-live-preview-title">✨ SARAN OBAT DARI ANAMNESA (${group === "adult" ? "DEWASA" : "ANAK"})</div>${rows}${notes}<div class="ak-package-suggestion-warn">Saran otomatis berdasarkan kata kunci dan sudah dicentang. Dokter wajib mengevaluasi indikasi, kontraindikasi, dan riwayat alergi sebelum input.</div></div>`;
+        suggestionEl.innerHTML = `<div class="ak-package-suggestion-box"><div class="ak-live-preview-title">✨ SARAN OBAT DARI KELUHAN UTAMA (${group === "adult" ? "DEWASA" : "ANAK"})</div>${rows}${notes}<div class="ak-package-suggestion-warn">Saran otomatis berdasarkan kata kunci dan sudah dicentang. Dokter wajib mengevaluasi indikasi, kontraindikasi, dan riwayat alergi sebelum input.</div></div>`;
       }
     };
 
@@ -4968,9 +5132,9 @@
     shade
       .querySelector("#ak-medgroup-resuggest")
       ?.addEventListener("click", () => {
-        const fresh = readAnamnesisFromPage();
-        if (fresh) anamnesisEl.value = fresh;
-        setAnamnesisSource(!!fresh);
+        const fresh = readChiefComplaintFromPage();
+        if (fresh.text) anamnesisEl.value = fresh.text;
+        setAnamnesisSource(fresh.source);
         resuggest({ reset: true });
       });
     weight?.addEventListener("input", () => refreshCategory());
