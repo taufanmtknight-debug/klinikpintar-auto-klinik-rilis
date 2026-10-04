@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Klinik Pintar - AUTO KLINIK
 // @namespace    klinikpintar-auto
-// @version      9.6.0
+// @version      9.7.0
 // @description  AUTO KLINIK untuk os.klinikpintar.id — ISPA Dewasa, Resume, Resep Manual, Paket Resep Golongan. Tidak pernah menekan Simpan otomatis.
 // @author       taufanmtknight-debug
 // @match        https://os.klinikpintar.id/*
@@ -34,7 +34,7 @@
 
   // Versi diambil dari header (GM_info) agar label launcher tidak pernah beda
   // dengan @version. Nilai cadangan WAJIB sama dengan @version (dicek oleh test).
-  const SCRIPT_VERSION_FALLBACK = "9.6.0";
+  const SCRIPT_VERSION_FALLBACK = "9.7.0";
   const VERSION =
     (typeof GM_info !== "undefined" && GM_info?.script?.version) ||
     SCRIPT_VERSION_FALLBACK;
@@ -1096,27 +1096,26 @@
       pattern: /diabetes|kencing\s+manis|gula\s+(?:darah\s+)?(?:tinggi|naik)|\bdm\b/,
       adult: ["METFORMIN_500"],
       child: [],
-      actions: ["CEK_GULA"],
     },
     {
       label: "Kolesterol",
       pattern: /kolesterol|dislipid\w*|lemak\s+darah/,
       adult: ["SIMVASTATIN_10"],
       child: [],
-      actions: ["CEK_KOLESTEROL"],
     },
     {
       label: "Asam urat",
       pattern: /asam\s+urat|\bgout\b|hiperurisemi\w*/,
       adult: ["ALLOPURINOL_100"],
       child: [],
-      actions: ["CEK_ASAM_URAT"],
     },
     // v9.6: keluhan yang mengarah ke TINDAKAN (resep tindakan dicentang otomatis).
     // Hanya tindakan, tanpa obat: permintaan cek lab belum berarti perlu obat.
+    // v9.7: cek lab HANYA bila tertulis "cek/periksa/tes ..." (keluhan DM, asam urat,
+    // kolesterol, sering haus, dsb. TIDAK otomatis mencentang cek lab).
     {
       label: "Cek gula darah",
-      pattern: /(?:cek|periksa|tes)\s+(?:gula|gds|gdp|gd2pp|kadar\s+gula)|sering\s+(?:haus|kencing\s+malam|lapar)|poli(?:uri|dipsi|fagi)/,
+      pattern: /(?:cek|periksa|tes)\s+(?:gula|gds|gdp|gd2pp|kadar\s+gula)/,
       adult: [],
       child: [],
       actions: ["CEK_GULA"],
@@ -1163,6 +1162,42 @@
     { key: "HT", label: "Hipertensi", icd: ["I10"], query: "hypertension" },
     { key: "IMUNISASI", label: "Imunisasi", icd: ["Z27.9", "Z27.8", "Z23.8"], query: "need for immunization" },
   ];
+
+  // RESUME + DIAGNOSIS (v9.7, uji coba): diagnosis dipilih dari Keluhan Utama.
+  // Urutan = prioritas bila beberapa cocok: keluhan akut dulu, lalu penyakit
+  // kronis, terakhir demam saja (demam + batuk = ISPA, demam + diare = GEA).
+  const DIAGNOSIS_FROM_COMPLAINT = [
+    { key: "ISPA", pattern: /batuk|pilek|\bflu\b|influenza|bersin|hidung\s+(?:tersumbat|mampet|meler)|ingus|\bispa\b|common cold|tenggorok\w*\s+(?:sakit|nyeri|perih|gatal)|(?:nyeri|sakit|perih|gatal)\s+(?:saat\s+)?(?:menelan|telan|tenggorok\w*)|radang\s+tenggorok\w*/ },
+    { key: "GEA", pattern: /diare|mencret|muntaber|(?:bab|berak|buang air besar)\s+(?:cair|encer)|gastroenteritis|\bgea\b/ },
+    { key: "DISPEPSIA", pattern: /\bmaa?g\b|ulu\s+hati|epigastri\w*|dispepsia|gastritis|kembung|begah|sebah|perih\s+(?:di\s+)?(?:ulu\s+hati|lambung|perut)|perut\s+perih|asam\s+lambung|\bgerd\b|mual|muntah/ },
+    { key: "IMUNISASI", pattern: /imunisasi|vaksin\w*|\bbcg\b|\bdpt\w*|\bpolio\b|\bopv\b|\bipv\b|\bpcv\b|campak\s+rubel\w*|\bmr\b|\bhb[\s-]?0\b/ },
+    { key: "HT", pattern: /hipertensi|darah\s+tinggi|tensi\s+tinggi|\bht\b|\bhtn\b/ },
+    { key: "DM", pattern: /diabetes|kencing\s+manis|gula\s+(?:darah\s+)?(?:tinggi|naik)|\bdm\b/ },
+    { key: "FEVER", pattern: /demam|febris|meriang|sumeng|(?:badan|suhu)\s+(?:terasa\s+)?panas|panas\s+(?:badan|tinggi|naik|sejak|\d)/ },
+  ];
+
+  // Hasil: { key, keyword, others: [kunci lain yang juga cocok] } atau null.
+  function detectDiagnosisFromComplaint(rawText) {
+    const lower = String(rawText || "").toLowerCase().replace(/\u00a0/g, " ");
+    if (!lower.trim()) return null;
+    const found = [];
+    for (const d of DIAGNOSIS_FROM_COMPLAINT) {
+      const re = new RegExp(d.pattern.source, "g");
+      let m;
+      while ((m = re.exec(lower))) {
+        if (!m[0]) {
+          re.lastIndex++;
+          continue;
+        }
+        if (!isKeywordNegated(lower, m.index, m.index + m[0].length)) {
+          found.push({ key: d.key, keyword: m[0] });
+          break;
+        }
+      }
+    }
+    if (!found.length) return null;
+    return { ...found[0], others: found.slice(1).map((f) => f.key) };
+  }
 
   // Jika obat `when` disarankan, obat `drop` tidak disarankan (isi tumpang tindih).
   const ANAMNESIS_SUGGESTION_OVERLAPS = [
@@ -5464,8 +5499,16 @@
   // resume : salin Keluhan Utama -> Anamnesa, kesadaran, prognosa (bila ada), layanan, status pulang
   // (mode "ispa" lama tidak lagi ada di menu; diganti menu DIAGNOSIS + PAKET RESEP)
   function runTemplate(mode = "ispa") {
-    const isResume = mode === "resume";
-    const label = isResume ? "AUTO KLINIK - RESUME" : "AUTO KLINIK - ISPA DEWASA";
+    const withDiagnosis = mode === "resume-diagnosis";
+    const isResume = mode === "resume" || withDiagnosis;
+    const label = withDiagnosis
+      ? "RESUME + DIAGNOSIS"
+      : isResume
+        ? "AUTO KLINIK - RESUME"
+        : "AUTO KLINIK - ISPA DEWASA";
+    let dxResult = null;
+    let dxDetected = null;
+    let dxError = null;
 
     return runTask(label, async () => {
       if (!isMedicalRecordCreatePage()) {
@@ -5486,6 +5529,25 @@
 
       await setConsciousness();
 
+      // RESUME + DIAGNOSIS: Diagnosa + ICD dari Keluhan Utama, SEBELUM layanan
+      // (Klinik Pintar memberi rekomendasi layanan dari ICD-10 yang dipilih).
+      if (withDiagnosis) {
+        dxDetected = detectDiagnosisFromComplaint(readFieldText("Keluhan Utama"));
+        const dx = dxDetected && DIAGNOSIS_TEMPLATES.find((d) => d.key === dxDetected.key);
+        if (dx) {
+          // Gagal memilih diagnosis tidak menghentikan resume; dilaporkan di akhir.
+          try {
+            dxResult = await fillDiagnosis(dx);
+          } catch (e) {
+            dxError = e;
+            console.warn("RESUME + DIAGNOSIS: diagnosis gagal", e);
+          }
+          if (dxResult) LOG(`Diagnosis dari Keluhan Utama ("${dxDetected.keyword}") -> ${dx.label} ${dxResult.icdCode}`);
+        } else {
+          LOG("Diagnosis tidak dikenali dari Keluhan Utama -> dilewati");
+        }
+      }
+
       if (!isResume) {
         await setDiagnosisAndIcd();
       } else {
@@ -5503,6 +5565,34 @@
       if (!isResume) await addRecipeItems(TEMPLATE.medicines);
       await setDischarge();
       if (!isResume) validateAndReport();
+
+      if (withDiagnosis) {
+        const dxLabel = (key) => DIAGNOSIS_TEMPLATES.find((d) => d.key === key)?.label || key;
+        if (dxResult) {
+          notify(
+            `RESUME + DIAGNOSIS selesai. Diagnosis: ${dxLabel(dxDetected.key)} (ICD ${dxResult.icdCode}), dari kata "${dxDetected.keyword}".` +
+              (dxDetected.others.length
+                ? ` Juga cocok: ${dxDetected.others.map(dxLabel).join(", ")} — tambahkan lewat menu DIAGNOSIS bila perlu.`
+                : "") +
+              " Periksa sebelum Simpan.",
+            "success",
+            14000,
+          );
+        } else if (dxError) {
+          notify(
+            `RESUME selesai, tetapi diagnosis ${dxLabel(dxDetected.key)} gagal diisi: ${dxError.message}`,
+            "warn",
+            16000,
+          );
+        } else {
+          notify(
+            "RESUME selesai, tetapi diagnosis tidak dikenali dari Keluhan Utama. Isi Diagnosa/ICD lewat menu DIAGNOSIS atau manual.",
+            "warn",
+            14000,
+          );
+        }
+        return;
+      }
 
       notify(
         isResume
@@ -5587,6 +5677,7 @@
   const MAIN_MENU = [
     { id: "auto-klinik-diagnosis", label: "🩺 DIAGNOSIS", run: () => renderDiagnosisPicker() },
     { id: "auto-klinik-resume", label: "📋 RESUME", run: () => runTemplate("resume") },
+    { id: "auto-klinik-resume-dx", label: "🧪 RESUME + DIAGNOSIS", run: () => runTemplate("resume-diagnosis") },
     { id: "auto-klinik-paket-obat", label: "💊 PAKET RESEP GOLONGAN", run: () => renderMedicationGroupPackagePicker() },
   ];
 
@@ -5966,6 +6057,8 @@
       buildDrugForItem,
       ANAMNESIS_SUGGESTION_RULES,
       DIAGNOSIS_TEMPLATES,
+      DIAGNOSIS_FROM_COMPLAINT,
+      detectDiagnosisFromComplaint,
       suggestMedicationsFromAnamnesis,
       parsePatientAge,
       formatPatientAge,
