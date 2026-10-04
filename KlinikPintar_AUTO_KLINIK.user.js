@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Klinik Pintar - AUTO KLINIK
 // @namespace    klinikpintar-auto
-// @version      9.1.0
-// @description  AUTO KLINIK v9.0.0 untuk os.klinikpintar.id — ISPA Dewasa, Resume, Resep Manual, Paket Resep Golongan. Tidak pernah menekan Simpan otomatis.
+// @version      9.2.0
+// @description  AUTO KLINIK untuk os.klinikpintar.id — ISPA Dewasa, Resume, Resep Manual, Paket Resep Golongan. Tidak pernah menekan Simpan otomatis.
 // @author       taufanmtknight-debug
 // @match        https://os.klinikpintar.id/*
 // @match        http://os.klinikpintar.id/*
@@ -34,7 +34,7 @@
 
   // Versi diambil dari header (GM_info) agar label launcher tidak pernah beda
   // dengan @version. Nilai cadangan WAJIB sama dengan @version (dicek oleh test).
-  const SCRIPT_VERSION_FALLBACK = "9.1.0";
+  const SCRIPT_VERSION_FALLBACK = "9.2.0";
   const VERSION =
     (typeof GM_info !== "undefined" && GM_info?.script?.version) ||
     SCRIPT_VERSION_FALLBACK;
@@ -5201,7 +5201,57 @@
     { id: "auto-klinik-resume", label: "📋 RESUME", run: () => runTemplate("resume") },
     { id: "auto-klinik-manual", label: "💊 RESEP MANUAL", run: () => showRecipePicker() },
     { id: "auto-klinik-paket-obat", label: "💊 PAKET RESEP GOLONGAN", run: () => renderMedicationGroupPackagePicker() },
+    { id: "auto-klinik-update", label: "⟳ CEK UPDATE", run: () => checkForUpdate() },
   ];
+
+  // Update satu klik. Cek bawaan Violentmonkey memakai URL cabang main yang bisa
+  // tersimpan di cache GitHub hingga 5 menit (query ?t= diabaikan cache). Karena itu
+  // ambil SHA commit terbaru lewat API, lalu pakai URL per-commit yang selalu segar.
+  // URL berakhiran .user.js dibuka Violentmonkey sebagai halaman instal; update
+  // berikutnya tetap memakai @updateURL dari header.
+  const RILIS_API =
+    "https://api.github.com/repos/taufanmtknight-debug/klinikpintar-auto-klinik-rilis/commits/main";
+  const rilisFileUrl = (ref) =>
+    `https://raw.githubusercontent.com/taufanmtknight-debug/klinikpintar-auto-klinik-rilis/${ref}/KlinikPintar_AUTO_KLINIK.user.js`;
+
+  function isNewerVersion(remote, local) {
+    const a = String(remote).split(".").map(Number);
+    const b = String(local).split(".").map(Number);
+    for (let i = 0; i < Math.max(a.length, b.length); i++) {
+      if ((a[i] || 0) !== (b[i] || 0)) return (a[i] || 0) > (b[i] || 0);
+    }
+    return false;
+  }
+
+  async function checkForUpdate() {
+    notify("Mengecek versi terbaru…", "info", 4000);
+    let remote = null;
+    let installUrl = null;
+    try {
+      const sha = (await (await fetch(RILIS_API, { cache: "no-store" })).json())?.sha;
+      if (/^[0-9a-f]{40}$/.test(sha || "")) {
+        installUrl = rilisFileUrl(sha);
+        const res = await fetch(installUrl, { cache: "no-store" });
+        remote = (await res.text()).match(/^\/\/ @version\s+(\S+)/m)?.[1] || null;
+      }
+    } catch (_) {}
+    if (!remote) {
+      notify("Gagal mengecek update. Periksa koneksi internet lalu coba lagi.", "warn", 8000);
+      return;
+    }
+    if (!isNewerVersion(remote, VERSION)) {
+      notify(`Script sudah versi terbaru (v${VERSION}).`, "success", 6000);
+      return;
+    }
+    // Tautan biasa: tetap jalan walau browser memblokir popup setelah fetch.
+    document.getElementById("ak-update-offer")?.remove();
+    const offer = document.createElement("div");
+    offer.id = "ak-update-offer";
+    offer.innerHTML = `<b>Versi baru v${escapePreviewHtml(remote)} tersedia</b> (terpasang v${escapePreviewHtml(VERSION)})<a href="${installUrl}" target="_blank" rel="noopener">⬇ UPDATE SEKARANG</a><small>Tekan Install/Update di halaman Violentmonkey, lalu muat ulang halaman ini.</small><button type="button">Nanti</button>`;
+    offer.querySelector("a").addEventListener("click", () => setTimeout(() => offer.remove(), 500));
+    offer.querySelector("button").addEventListener("click", () => offer.remove());
+    document.body.appendChild(offer);
+  }
 
   function closeMainSubmenu() {
     const submenu = document.getElementById("auto-klinik-submenu");
@@ -5382,6 +5432,14 @@
     .ak-package-suggestion-warn{margin-top:6px!important;color:#92400e!important;font:700 11px/1.4 Arial,sans-serif!important;}
     .ak-suggest-badge{margin-left:auto!important;padding:2px 7px!important;border-radius:999px!important;background:#7c3aed!important;color:#fff!important;
       font:800 10px/1.4 Arial,sans-serif!important;font-style:normal!important;}
+    #ak-update-offer{position:fixed!important;left:50%!important;top:20px!important;transform:translateX(-50%)!important;z-index:2147483647!important;
+      width:min(360px,calc(100vw - 32px))!important;display:flex!important;flex-direction:column!important;gap:10px!important;padding:16px!important;
+      border-radius:12px!important;background:#fff!important;box-shadow:0 10px 30px rgba(0,0,0,.25)!important;color:#193041!important;
+      font:600 13px/1.45 Arial,sans-serif!important;box-sizing:border-box!important;}
+    #ak-update-offer a{display:block!important;padding:12px!important;border-radius:9px!important;background:#f97316!important;color:#fff!important;
+      text-align:center!important;text-decoration:none!important;font:800 15px Arial,sans-serif!important;}
+    #ak-update-offer small{color:#64748b!important;}
+    #ak-update-offer button{padding:8px!important;border:1px solid #cbd5e1!important;border-radius:9px!important;background:#fff!important;color:#475569!important;}
     .ak-package-note{flex:1!important;min-width:200px!important;font:600 11px/1.5 Arial,sans-serif!important;color:#6b7280!important;}
 
     /* ---------- Preview obat terpilih ---------- */
@@ -5477,6 +5535,7 @@
       getWeightRecipeTemplate,
       parseWeightKg,
       parseWeightFromVitalsText,
+      isNewerVersion,
       ANAMNESIS_SUGGESTION_RULES,
       suggestMedicationsFromAnamnesis,
       parsePatientAge,
