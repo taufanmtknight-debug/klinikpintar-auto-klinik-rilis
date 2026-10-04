@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Klinik Pintar - AUTO KLINIK
 // @namespace    klinikpintar-auto
-// @version      9.0.0
+// @version      9.1.0
 // @description  AUTO KLINIK v9.0.0 untuk os.klinikpintar.id — ISPA Dewasa, Resume, Resep Manual, Paket Resep Golongan. Tidak pernah menekan Simpan otomatis.
 // @author       taufanmtknight-debug
 // @match        https://os.klinikpintar.id/*
@@ -34,7 +34,7 @@
 
   // Versi diambil dari header (GM_info) agar label launcher tidak pernah beda
   // dengan @version. Nilai cadangan WAJIB sama dengan @version (dicek oleh test).
-  const SCRIPT_VERSION_FALLBACK = "9.0.0";
+  const SCRIPT_VERSION_FALLBACK = "9.1.0";
   const VERSION =
     (typeof GM_info !== "undefined" && GM_info?.script?.version) ||
     SCRIPT_VERSION_FALLBACK;
@@ -953,6 +953,124 @@
           population: "adult",
         },
       ],
+    },
+  ];
+
+  // SARAN OBAT DARI ANAMNESA (Paket Resep Golongan)
+  // Kata kunci di anamnesa/keluhan -> pilihan obat (key MEDICATION_GROUP_PACKAGES)
+  // yang dicentang otomatis. Hanya SARAN: dokter tetap mereview dan bisa
+  // menghapus centang. Kata kunci yang dinegasikan ("tidak demam", "batuk (-)")
+  // diabaikan. Test memastikan setiap key ada dan cocok dengan kategorinya.
+  const ANAMNESIS_SUGGESTION_RULES = [
+    {
+      label: "Demam",
+      pattern: /demam|febris|meriang|sumeng|(?:badan|anak|suhu)\s+(?:terasa\s+)?panas|panas\s+(?:badan|tinggi|naik|sejak|\d)/,
+      adult: ["PARACETAMOL_DEWASA"],
+      child: ["PARACETAMOL_ANAK"],
+    },
+    {
+      label: "Batuk / pilek",
+      pattern: /batuk|pilek|\bflu\b|influenza|bersin|hidung\s+(?:tersumbat|mampet|meler)|ingus|\bispa\b|common cold/,
+      adult: ["ALPARA_DEWASA", "DEXAMETHASONE_05", "VITAMIN_B_COMPLEX"], // = template ISPA Dewasa
+      child: ["ISPA_ANAK"],
+    },
+    {
+      label: "Dahak",
+      pattern: /dahak|sputum|\briak\b/,
+      adult: ["AMBROXOL_30_DEWASA"],
+      child: ["BAPIL_2_ANAK"],
+    },
+    {
+      label: "Nyeri tenggorok / infeksi",
+      pattern: /radang|tonsil|amandel|faring|(?:nyeri|sakit)\s+(?:saat\s+)?(?:menelan|telan|tenggorok)|tenggorok\w*\s+(?:sakit|nyeri|perih)|bisul|abses|nanah|gigi\s+(?:bengkak|berlubang)|sakit\s+gigi/,
+      adult: ["AMOXICILLIN_500_DEWASA", "DEXAMETHASONE_05"],
+      child: ["AMOXICILLIN_500_RACIKAN_BARU"],
+    },
+    {
+      label: "Sakit kepala",
+      pattern: /(?:sakit|nyeri)\s+kepala|pusing|cekot|ce[fp]h?algia|migr[ae]i?n/,
+      adult: ["PARACETAMOL_DEWASA"],
+      child: ["PARACETAMOL_ANAK"],
+    },
+    {
+      label: "Nyeri otot / sendi",
+      pattern: /(?:nyeri|sakit)\s+(?:otot|sendi|pinggang|punggung|lutut|bahu|leher|badan)|pegal|pegel|linu|ngilu|keseleo|terkilir|encok|m[iy]algia|art?h?ralgia|low back pain|\blbp\b/,
+      adult: ["DICLOFENAC_50"],
+      child: ["PARACETAMOL_ANAK"],
+    },
+    {
+      label: "Gatal / alergi",
+      pattern: /gatal|alergi|biduran|kaligata|urtikaria|bentol|\bbidur/,
+      adult: ["CETIRIZINE_10_DEWASA"],
+      child: ["CETIRIZINE_RACIKAN_BARU"],
+    },
+    {
+      label: "Kelainan kulit",
+      pattern: /ruam|eksim|eksema|dermatitis|lecet|kurap|panu|\bjamur/,
+      adult: ["SALEP_RACIKAN_BARU"],
+      child: ["SALEP_RACIKAN_BARU"],
+    },
+    {
+      label: "Maag / ulu hati",
+      pattern: /\bmaa?g\b|ulu\s+hati|epigastri|perih|kembung|begah|sebah|dispepsia|gastritis|lambung|\bgerd\b|heartburn/,
+      adult: ["ANTASIDA_DEWASA"],
+      child: ["ANTASIDA_ANAK"],
+    },
+    {
+      label: "Mual / muntah",
+      pattern: /mual|muntah|nausea|vomit/,
+      adult: ["DOMPERIDONE_10_DEWASA"],
+      child: ["MUAL_MUNTAH_RACIKAN_BARU"],
+    },
+    {
+      label: "Diare",
+      pattern: /diare|mencret|(?:bab|berak|buang air besar)\s+(?:cair|encer)|gastroenteritis/,
+      adult: ["AKITA"],
+      child: ["ZINC_ANAK", "ORALIT_ANAK"],
+    },
+    {
+      label: "Hipertensi",
+      pattern: /hipertensi|darah\s+tinggi|tensi\s+tinggi|tekanan\s+darah\s+tinggi|\bht\b|\bhtn\b/,
+      adult: ["AMLODIPINE_5"],
+      child: [],
+    },
+    {
+      label: "Diabetes",
+      pattern: /diabetes|kencing\s+manis|gula\s+(?:darah\s+)?(?:tinggi|naik)|\bdm\b/,
+      adult: ["METFORMIN_500"],
+      child: [],
+    },
+    {
+      label: "Kolesterol",
+      pattern: /kolesterol|dislipid|lemak\s+darah/,
+      adult: ["SIMVASTATIN_10"],
+      child: [],
+    },
+    {
+      label: "Asam urat",
+      pattern: /asam\s+urat|\bgout\b|hiperurisemi/,
+      adult: ["ALLOPURINOL_100"],
+      child: [],
+    },
+    {
+      label: "Kesemutan / lemas",
+      pattern: /kesemutan|kebas|\bbaal\b|neuropati|lemas|lesu/,
+      adult: ["VITAMIN_B_COMPLEX"],
+      child: [],
+    },
+  ];
+
+  // Jika obat `when` disarankan, obat `drop` tidak disarankan (isi tumpang tindih).
+  const ANAMNESIS_SUGGESTION_OVERLAPS = [
+    {
+      when: "ALPARA_DEWASA",
+      drop: ["PARACETAMOL_DEWASA"],
+      note: "Paracetamol tidak disarankan terpisah karena Alpara sudah mengandung paracetamol",
+    },
+    {
+      when: "BAPIL_2_ANAK",
+      drop: ["ISPA_ANAK"],
+      note: "Racikan ISPA Anak diganti Racikan Bapil 2 (berisi ambroxol untuk dahak)",
     },
   ];
 
@@ -3664,6 +3782,109 @@
       : "Umur dari identitas: 0 tahun";
   }
 
+  const isPlausibleWeight = (kg) => Number.isFinite(kg) && kg >= 0.5 && kg < 300;
+
+  // Elemen milik script sendiri (launcher, overlay) tidak boleh ikut dibaca.
+  const isOwnUi = (el) => !!el?.closest?.('#auto-klinik-box, [id^="ak-"]');
+
+  // Cadangan berbasis teks: "Berat badan 18 kg" / "Berat badan 17 18 kg"
+  // (beberapa kunjungan) -> ambil angka terakhir sebelum "kg" (kunjungan terbaru).
+  function parseWeightFromVitalsText(rawText) {
+    const pageText = String(rawText || "")
+      .replace(/ /g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+    const patterns = [
+      /berat\s*badan[\s:]*((?:[0-9]+(?:[.,][0-9]+)?\s+)*[0-9]+(?:[.,][0-9]+)?)\s*kg/i,
+      /berat\s*badan[\s\S]{0,120}?([0-9]+(?:[.,][0-9]+)?)\s*kg/i,
+    ];
+    for (const re of patterns) {
+      const m = pageText.match(re);
+      if (!m) continue;
+      const values = m[1].split(/\s+/).map(parseWeightKg).filter(isPlausibleWeight);
+      if (values.length) return values[values.length - 1];
+    }
+    return null;
+  }
+
+  // BB terbaru dari tabel Tanda-Tanda Vital (dipulihkan dari v8.1.6).
+  // Tabel bisa berupa <table> maupun <div>; kunjungan terbaru = kolom paling kanan.
+  function getPatientWeightFromLatestVitals() {
+    const candidates = [];
+    const labels = [...document.querySelectorAll("body *")].filter((el) => {
+      const raw = el.textContent || "";
+      if (raw.length > 20 || isOwnUi(el)) return false;
+      const t = norm(raw).replace(/\s*\*/g, "");
+      return (t === "berat badan" || t === "berat badan:") && visible(el);
+    });
+
+    for (const label of labels) {
+      let container = label;
+      for (let level = 0; level < 14 && container; level++, container = container.parentElement) {
+        if (container === document.body) break;
+        const controls = [...container.querySelectorAll("input, textarea, select")]
+          .filter((el) => visible(el) && !isOwnUi(el))
+          .map((el) => ({ value: parseWeightKg(el.value ?? ""), rect: el.getBoundingClientRect?.() }))
+          .filter((x) => isPlausibleWeight(x.value));
+        if (!controls.length) continue;
+        // Jangan memilih container besar yang mencakup seluruh tabel vital.
+        const containerText = norm(text(container));
+        if (!containerText.includes("berat badan") || !containerText.includes("kg")) continue;
+        const positioned = controls
+          .filter((x) => x.rect && x.rect.width > 0 && x.rect.height > 0)
+          .sort((a, b) => b.rect.right - a.rect.right);
+        const chosen = positioned[0] || controls[controls.length - 1];
+        candidates.push({
+          kg: chosen.value,
+          right: chosen.rect?.right ?? -Infinity,
+          area: containerText.length,
+        });
+        break;
+      }
+    }
+    if (candidates.length) {
+      candidates.sort((a, b) => b.right - a.right || a.area - b.area);
+      return { kg: candidates[0].kg, source: "Tanda-Tanda Vital (kunjungan terbaru)" };
+    }
+
+    // Kolom "Berat Badan" biasa pada form pemeriksaan.
+    for (const label of ["Berat Badan", "Berat badan (kg)", "BB"]) {
+      const kg = parseWeightKg(readFieldText(label));
+      if (isPlausibleWeight(kg)) return { kg, source: `kolom ${label}` };
+    }
+
+    const pageText = [...(document.body?.children || [])]
+      .filter((el) => !isOwnUi(el))
+      .map((el) => el.innerText || el.textContent || "")
+      .join("\n");
+    const kg = parseWeightFromVitalsText(pageText);
+    return kg ? { kg, source: "teks Tanda-Tanda Vital" } : null;
+  }
+
+  // Isi teks kolom form berlabel `label` (input/textarea saja), "" bila tidak ada.
+  function readFieldText(label) {
+    try {
+      const control =
+        nearbyControlFromLabel(label) || findInputByPlaceholder([label]);
+      const input = getEditableInput(control);
+      if (!input || isOwnUi(input)) return "";
+      return String(input.value || "").trim();
+    } catch (_) {
+      return "";
+    }
+  }
+
+  // Anamnesa + Keluhan Utama dari form rekam medis (keduanya bila berbeda).
+  function readAnamnesisFromPage() {
+    const parts = [];
+    for (const label of ["Anamnesa", "Keluhan Utama"]) {
+      const value = readFieldText(label);
+      if (value && !parts.some((p) => norm(p).includes(norm(value))))
+        parts.push(value);
+    }
+    return parts.join("\n");
+  }
+
   // Cari template yang rentang BB-nya memuat weightKg (lihat weightBands).
   function findWeightTemplate(templates, prefix, weightKg) {
     for (const [key, tpl] of Object.entries(templates)) {
@@ -3832,6 +4053,73 @@
     group.items.map((item) => ({ ...item, sourceGroup: group.label })),
   );
 
+  // Kata kunci dinegasikan: "tidak demam", "tanpa batuk", "tidak disertai mual",
+  // "batuk tidak berdahak", "demam (-)", "mual disangkal".
+  function isKeywordNegated(lowerText, start, end) {
+    let wordStart = start;
+    while (wordStart > 0 && /[a-z0-9]/.test(lowerText[wordStart - 1])) wordStart--;
+    const before = lowerText
+      .slice(Math.max(0, wordStart - 30), wordStart)
+      .split(/[,.;:\n()]/)
+      .pop();
+    if (
+      /(?:^|\s)(?:tidak|tdk|tak|tanpa|bukan|gak|ga|nggak|ngga|belum|disangkal)\s+(?:ada\s+)?(?:[a-z]+\s+)?$/.test(
+        before,
+      )
+    )
+      return true;
+    const after = lowerText.slice(end, end + 25);
+    return /^[a-z]*\s*(?::\s*)?(?:\(\s*-\s*\)|\(\s*neg|-\s*(?:[,.;\n]|$)|negatif|disangkal)/.test(
+      after,
+    );
+  }
+
+  // Saran pilihan obat dari teks anamnesa untuk kategori `group` (adult/child).
+  // Hasil: keys (urut, unik, sesuai kategori), matches (alasan), notes.
+  function suggestMedicationsFromAnamnesis(rawText, group) {
+    const result = { keys: [], matches: [], notes: [] };
+    const lower = String(rawText || "").toLowerCase().replace(/ /g, " ");
+    if (!lower.trim() || (group !== "adult" && group !== "child")) return result;
+
+    for (const rule of ANAMNESIS_SUGGESTION_RULES) {
+      const keys = rule[group] || [];
+      if (!keys.length) continue;
+      const re = new RegExp(rule.pattern.source, "g");
+      let m;
+      let keyword = null;
+      while ((m = re.exec(lower))) {
+        if (!m[0]) {
+          re.lastIndex++;
+          continue;
+        }
+        if (!isKeywordNegated(lower, m.index, m.index + m[0].length)) {
+          keyword = m[0];
+          break;
+        }
+      }
+      if (!keyword) continue;
+      result.matches.push({ label: rule.label, keyword, keys: [...keys] });
+      for (const k of keys) if (!result.keys.includes(k)) result.keys.push(k);
+    }
+
+    for (const o of ANAMNESIS_SUGGESTION_OVERLAPS) {
+      if (!result.keys.includes(o.when) || !o.drop.some((k) => result.keys.includes(k)))
+        continue;
+      result.keys = result.keys.filter((k) => !o.drop.includes(k));
+      for (const match of result.matches)
+        match.keys = match.keys.filter((k) => !o.drop.includes(k));
+      result.notes.push(o.note);
+    }
+
+    result.keys = result.keys.filter((k) =>
+      isMedicationItemAllowedForGroup(
+        MEDICATION_ITEMS_FLAT.find((x) => x.key === k),
+        group,
+      ),
+    );
+    return result;
+  }
+
   // Validasi terpusat untuk Paket Resep Golongan. Audit ini memastikan semua
   // referensi item obat/racikan merujuk ke master ITEMS atau template resep
   // yang pada akhirnya hanya memakai item yang terdaftar di ITEMS.
@@ -3931,6 +4219,18 @@
           errors.push(
             `${item.key}: type ${item.type || "(kosong)"} tidak dikenali.`,
           );
+      }
+    }
+
+    for (const rule of ANAMNESIS_SUGGESTION_RULES) {
+      for (const group of ["adult", "child"]) {
+        for (const key of rule[group] || []) {
+          const item = MEDICATION_ITEMS_FLAT.find((x) => x.key === key);
+          if (!isMedicationItemAllowedForGroup(item, group))
+            errors.push(
+              `Saran anamnesa "${rule.label}": ${key} ${item ? `tidak tersedia untuk ${group}` : "tidak ada di Paket Golongan"}.`,
+            );
+        }
       }
     }
 
@@ -4328,21 +4628,31 @@
   function renderMedicationGroupPackagePicker() {
     const old = document.getElementById("ak-medgroup-picker");
     if (old) old.remove();
+    // Baca halaman SEBELUM overlay dipasang, agar kolom milik overlay tidak ikut terbaca.
+    const ageInfo = getPatientAgeFromIdentity();
+    const weightInfo = getPatientWeightFromLatestVitals();
+    const pageAnamnesis = readAnamnesisFromPage();
     const shade = document.createElement("div");
     shade.id = "ak-medgroup-picker";
-    shade.innerHTML = `<div class="ak-rp-card ak-medgroup-card"><div class="ak-rp-head"><div><div class="ak-rp-title">PAKET RESEP</div><div class="ak-rp-sub">Tentukan DEWASA/ANAK terlebih dahulu, lalu pilih obat yang diinginkan.</div></div><button class="ak-rp-x" type="button">×</button></div><div class="ak-package-step"><div class="ak-rp-label">1. UMUR PASIEN (OTOMATIS)</div><div id="ak-medgroup-age" class="ak-package-age-auto">Membaca umur pasien...</div><div id="ak-medgroup-age-hint" class="ak-package-age-hint">Umur diambil otomatis dari identitas pasien.</div></div><div id="ak-medgroup-bb-step" class="ak-package-step"><div class="ak-rp-label">2. BERAT BADAN PASIEN</div><div class="ak-package-weight-manual"><input id="ak-medgroup-weight" type="number" min="0.1" max="499" step="0.1" inputmode="decimal" placeholder="Masukkan BB (kg)"><span>kg</span></div><div id="ak-medgroup-group-status" class="ak-package-status">BB belum diisi</div></div><div class="ak-package-step"><div id="ak-medgroup-items-label" class="ak-rp-label">3. PILIH OBAT</div><div id="ak-medgroup-items" class="ak-rp-grid ak-package-multi-grid"></div></div><div class="ak-package-step"><div class="ak-rp-label">4. RESEP TINDAKAN (OPSIONAL)</div><div class="ak-rp-grid ak-package-multi-grid">${PACKAGE_ACTIONS.map((a) => `<label class="ak-package-choice"><input data-med-action="${a.key}" type="checkbox" value="${a.key}"><span>${a.label}</span></label>`).join("")}</div></div><div id="ak-medgroup-selected" class="ak-package-selected">Tentukan kategori pasien terlebih dahulu</div><div id="ak-medgroup-live-preview" class="ak-package-live-preview"></div><div class="ak-rp-foot"><div class="ak-package-note">Preview obat/racikan tampil otomatis di atas. Klik INPUT RESEP untuk mulai menginput. Script tidak menekan Simpan Resep otomatis.</div><div class="ak-package-actions"><button class="ak-rp-back" id="ak-medgroup-close" type="button">Tutup</button><button class="ak-rp-btn ak-package-run" id="ak-medgroup-run" type="button">✓ INPUT RESEP</button></div></div></div>`;
+    shade.innerHTML = `<div class="ak-rp-card ak-medgroup-card"><div class="ak-rp-head"><div><div class="ak-rp-title">PAKET RESEP</div><div class="ak-rp-sub">Umur, BB, dan anamnesa dibaca otomatis. Obat saran sudah dicentang: review, ubah bila perlu, lalu input.</div></div><button class="ak-rp-x" type="button">×</button></div><div class="ak-package-step"><div class="ak-rp-label">UMUR PASIEN (OTOMATIS)</div><div id="ak-medgroup-age" class="ak-package-age-auto">Membaca umur pasien...</div><div id="ak-medgroup-age-hint" class="ak-package-age-hint">Umur diambil otomatis dari identitas pasien.</div></div><div id="ak-medgroup-bb-step" class="ak-package-step"><div class="ak-rp-label">BERAT BADAN PASIEN</div><div class="ak-package-weight-manual"><input id="ak-medgroup-weight" type="number" min="0.1" max="499" step="0.1" inputmode="decimal" placeholder="Masukkan BB (kg)"><span>kg</span></div><div id="ak-medgroup-weight-source" class="ak-package-age-hint"></div><div id="ak-medgroup-group-status" class="ak-package-status">BB belum diisi</div></div><div class="ak-package-step"><div class="ak-rp-label">ANAMNESA PASIEN</div><textarea id="ak-medgroup-anamnesis" class="ak-package-anamnesis" rows="3" placeholder="Belum terbaca dari form. Ketik keluhan pasien di sini untuk mendapat saran obat."></textarea><div class="ak-package-anamnesis-bar"><span id="ak-medgroup-anamnesis-source" class="ak-package-age-hint"></span><button id="ak-medgroup-resuggest" class="ak-rp-back" type="button">↻ Baca ulang &amp; sarankan</button></div><div id="ak-medgroup-suggestion" class="ak-package-suggestion"></div></div><div class="ak-package-step"><div id="ak-medgroup-items-label" class="ak-rp-label">PILIH OBAT</div><div id="ak-medgroup-items" class="ak-rp-grid ak-package-multi-grid"></div></div><div class="ak-package-step"><div class="ak-rp-label">RESEP TINDAKAN (OPSIONAL)</div><div class="ak-rp-grid ak-package-multi-grid">${PACKAGE_ACTIONS.map((a) => `<label class="ak-package-choice"><input data-med-action="${a.key}" type="checkbox" value="${a.key}"><span>${a.label}</span></label>`).join("")}</div></div><div id="ak-medgroup-selected" class="ak-package-selected">Tentukan kategori pasien terlebih dahulu</div><div id="ak-medgroup-live-preview" class="ak-package-live-preview"></div><div class="ak-rp-foot"><div class="ak-package-note">Preview obat/racikan tampil otomatis di atas. Klik INPUT RESEP untuk mulai menginput. Script tidak menekan Simpan Resep otomatis.</div><div class="ak-package-actions"><button class="ak-rp-back" id="ak-medgroup-close" type="button">Tutup</button><button class="ak-rp-btn ak-package-run" id="ak-medgroup-run" type="button">✓ INPUT RESEP</button></div></div></div>`;
     document.body.appendChild(shade);
     const close = () => shade.remove();
     shade.querySelector(".ak-rp-x")?.addEventListener("click", close);
     shade.querySelector("#ak-medgroup-close")?.addEventListener("click", close);
     const weight = shade.querySelector("#ak-medgroup-weight"),
+      weightSourceEl = shade.querySelector("#ak-medgroup-weight-source"),
       status = shade.querySelector("#ak-medgroup-group-status"),
       ageEl = shade.querySelector("#ak-medgroup-age"),
       bbStep = shade.querySelector("#ak-medgroup-bb-step"),
+      anamnesisEl = shade.querySelector("#ak-medgroup-anamnesis"),
+      anamnesisSourceEl = shade.querySelector("#ak-medgroup-anamnesis-source"),
+      suggestionEl = shade.querySelector("#ak-medgroup-suggestion"),
       items = shade.querySelector("#ak-medgroup-items"),
       selectedEl = shade.querySelector("#ak-medgroup-selected");
-    const ageInfo = getPatientAgeFromIdentity();
     let ageYears = ageInfo?.ageYears ?? null;
+    const weightText = weightInfo
+      ? `${String(weightInfo.kg).replace(".", ",")} kg`
+      : "";
     if (ageInfo) {
       ageEl.textContent = formatPatientAge(ageInfo);
       ageEl.className = "ak-package-age-auto found";
@@ -4350,11 +4660,68 @@
       ageEl.textContent = "Umur dari identitas belum terdeteksi";
       ageEl.className = "ak-package-age-auto missing";
     }
+    // Pasien >17 tahun: langkah BB disembunyikan, BB terakhir tetap ditampilkan.
+    if (weightInfo && !getMedicationPackageNeedsWeight(ageYears))
+      ageEl.textContent += ` · BB terakhir: ${weightText}`;
+    if (weightInfo) {
+      weight.value = String(weightInfo.kg);
+      weightSourceEl.textContent = `BB terakhir terbaca otomatis dari ${weightInfo.source}. Ubah bila tidak sesuai.`;
+    } else {
+      weightSourceEl.textContent =
+        "BB tidak ditemukan di halaman ini. Isi manual.";
+    }
+    const setAnamnesisSource = (found) => {
+      anamnesisSourceEl.textContent = found
+        ? "Dibaca dari form Anamnesa/Keluhan Utama. Boleh diubah; saran ikut berubah."
+        : "Anamnesa tidak ditemukan di halaman ini.";
+    };
+    anamnesisEl.value = pageAnamnesis;
+    setAnamnesisSource(!!pageAnamnesis);
 
     // Simpan pilihan obat lintas perubahan kategori. Obat yang tidak sesuai kategori
     // hanya disembunyikan, bukan dihapus dari state, sehingga ketika BB diubah kembali
     // ke kategori sebelumnya pilihan pengguna dapat muncul lagi.
     const selectedMedicationKeys = new Set();
+    // Saran anamnesa: autoAdded = dicentang oleh saran (dicabut lagi bila saran
+    // berubah), dismissed = saran yang centangnya dihapus dokter (tidak dicentang ulang).
+    let currentGroup = null;
+    let suggestedKeys = new Set();
+    const autoAdded = new Set();
+    const dismissed = new Set();
+    const itemLabel = (key) =>
+      MEDICATION_ITEMS_FLAT.find((x) => x.key === key)?.label || key;
+
+    const applySuggestions = (group, { reset = false } = {}) => {
+      for (const k of autoAdded) selectedMedicationKeys.delete(k);
+      autoAdded.clear();
+      if (reset) dismissed.clear();
+      const s = suggestMedicationsFromAnamnesis(anamnesisEl.value, group);
+      suggestedKeys = new Set(s.keys);
+      for (const k of s.keys) {
+        if (dismissed.has(k) || selectedMedicationKeys.has(k)) continue;
+        selectedMedicationKeys.add(k);
+        autoAdded.add(k);
+      }
+      if (!group) {
+        suggestionEl.innerHTML = `<div class="ak-preview-empty">Saran obat muncul setelah kategori DEWASA/ANAK diketahui.</div>`;
+      } else if (!anamnesisEl.value.trim()) {
+        suggestionEl.innerHTML = `<div class="ak-preview-empty">Anamnesa kosong, jadi tidak ada saran. Pilih obat manual.</div>`;
+      } else if (!s.matches.length) {
+        suggestionEl.innerHTML = `<div class="ak-preview-empty">Tidak ada keluhan yang dikenali dari anamnesa. Pilih obat manual.</div>`;
+      } else {
+        const rows = s.matches
+          .map(
+            (m) =>
+              `• <b>${escapePreviewHtml(m.label)}</b> <small>("${escapePreviewHtml(m.keyword)}")</small> → ${m.keys.length ? m.keys.map((k) => escapePreviewHtml(itemLabel(k))).join(", ") : "sudah tercakup obat lain (lihat ⓘ)"}`,
+          )
+          .join("<br>");
+        const notes = s.notes
+          .map((n) => `<br><small>ⓘ ${escapePreviewHtml(n)}</small>`)
+          .join("");
+        suggestionEl.innerHTML = `<div class="ak-package-suggestion-box"><div class="ak-live-preview-title">✨ SARAN OBAT DARI ANAMNESA (${group === "adult" ? "DEWASA" : "ANAK"})</div>${rows}${notes}<div class="ak-package-suggestion-warn">Saran otomatis berdasarkan kata kunci dan sudah dicentang. Dokter wajib mengevaluasi indikasi, kontraindikasi, dan riwayat alergi sebelum input.</div></div>`;
+      }
+    };
+
     const renderItemsForGroup = (group) => {
       const allowed = MEDICATION_ITEMS_FLAT.filter(
         (i) => i.population === group || i.population === "all",
@@ -4362,13 +4729,18 @@
       items.innerHTML = allowed
         .map(
           (i) =>
-            `<label class="ak-package-choice"><input data-med-item="${i.key}" type="checkbox" value="${i.key}" ${selectedMedicationKeys.has(i.key) ? "checked" : ""}><span>${i.label}</span></label>`,
+            `<label class="ak-package-choice"><input data-med-item="${i.key}" type="checkbox" value="${i.key}" ${selectedMedicationKeys.has(i.key) ? "checked" : ""}><span>${i.label}</span>${suggestedKeys.has(i.key) ? '<em class="ak-suggest-badge">saran</em>' : ""}</label>`,
         )
         .join("");
       items.querySelectorAll("[data-med-item]").forEach((x) =>
         x.addEventListener("change", () => {
-          if (x.checked) selectedMedicationKeys.add(x.value);
-          else selectedMedicationKeys.delete(x.value);
+          if (x.checked) {
+            selectedMedicationKeys.add(x.value);
+            dismissed.delete(x.value);
+          } else {
+            selectedMedicationKeys.delete(x.value);
+            if (autoAdded.delete(x.value)) dismissed.add(x.value);
+          }
           updateSelected();
         }),
       );
@@ -4377,8 +4749,7 @@
       const visibleLabels = [...shade.querySelectorAll("[data-med-item]")];
       const meds = visibleLabels
         .filter((x) => selectedMedicationKeys.has(x.value))
-        .map((x) => x.closest("label")?.innerText?.trim())
-        .filter(Boolean);
+        .map((x) => itemLabel(x.value));
       const hiddenSelected = [...selectedMedicationKeys].filter(
         (key) => !visibleLabels.some((x) => x.value === key),
       );
@@ -4393,20 +4764,29 @@
           : "Belum ada obat dipilih";
       updateMedicationGroupLivePreview(shade, ageYears);
     };
+    const showGroup = (group) => {
+      if (group !== currentGroup) {
+        currentGroup = group;
+        applySuggestions(group);
+      }
+      renderItemsForGroup(group);
+      updateSelected();
+    };
     const refreshCategory = () => {
       const needsWeight = getMedicationPackageNeedsWeight(ageYears);
       bbStep.style.display = needsWeight ? "block" : "none";
       if (!needsWeight) {
         status.textContent = "Umur >17 tahun → DEWASA, BB tidak diperlukan";
         status.className = "ak-package-status adult";
-        renderItemsForGroup("adult");
-        updateSelected();
+        showGroup("adult");
         return "adult";
       }
       const kg = parseWeightKg(weight?.value || "");
       if (!kg) {
         status.textContent = "Masukkan BB untuk menentukan DEWASA/ANAK";
         status.className = "ak-package-status";
+        currentGroup = null;
+        applySuggestions(null);
         items.innerHTML = "";
         selectedEl.textContent = "Menunggu BB pasien";
         updateMedicationGroupLivePreview(shade, ageYears);
@@ -4415,10 +4795,28 @@
       const group = getMedicationPackageGroup(kg, ageYears);
       status.textContent = `${ageYears == null ? "Umur tidak terdeteksi; " : ""}BB ${String(kg).replace(".", ",")} kg → ${group === "adult" ? "DEWASA" : "ANAK"}`;
       status.className = `ak-package-status ${group}`;
-      renderItemsForGroup(group);
-      updateSelected();
+      showGroup(group);
       return group;
     };
+    const resuggest = (options) => {
+      if (!currentGroup) return;
+      applySuggestions(currentGroup, options);
+      renderItemsForGroup(currentGroup);
+      updateSelected();
+    };
+    let anamnesisTimer = null;
+    anamnesisEl.addEventListener("input", () => {
+      clearTimeout(anamnesisTimer);
+      anamnesisTimer = setTimeout(() => resuggest(), 500);
+    });
+    shade
+      .querySelector("#ak-medgroup-resuggest")
+      ?.addEventListener("click", () => {
+        const fresh = readAnamnesisFromPage();
+        if (fresh) anamnesisEl.value = fresh;
+        setAnamnesisSource(!!fresh);
+        resuggest({ reset: true });
+      });
     weight?.addEventListener("input", () => refreshCategory());
     shade
       .querySelectorAll("[data-med-action]")
@@ -4973,6 +5371,17 @@
     .ak-package-actions{display:flex!important;gap:8px!important;align-items:center!important;flex-wrap:wrap!important;}
     .ak-rp-btn.ak-package-run{width:auto!important;background:#f97316!important;color:#fff!important;border-color:#ea580c!important;}
     .ak-rp-btn.ak-package-run:hover{background:#ea580c!important;}
+    .ak-package-anamnesis{display:block!important;width:100%!important;margin-top:7px!important;padding:10px 12px!important;border:1px solid #cbd5e1!important;
+      border-radius:9px!important;background:#fff!important;color:#193041!important;font:600 13px/1.45 Arial,sans-serif!important;box-sizing:border-box!important;resize:vertical!important;}
+    .ak-package-anamnesis:focus{outline:none!important;border-color:#f97316!important;box-shadow:0 0 0 2px rgba(249,115,22,.12)!important;}
+    .ak-package-anamnesis-bar{display:flex!important;justify-content:space-between!important;align-items:center!important;gap:8px!important;flex-wrap:wrap!important;}
+    .ak-package-suggestion{margin-top:8px!important;}
+    .ak-package-suggestion-box{padding:10px 12px!important;border:1px solid #c4b5fd!important;border-radius:9px!important;background:#f5f3ff!important;
+      color:#3b0764!important;font:600 12px/1.6 Arial,sans-serif!important;}
+    .ak-package-suggestion-box .ak-live-preview-title{color:#6d28d9!important;margin-bottom:4px!important;}
+    .ak-package-suggestion-warn{margin-top:6px!important;color:#92400e!important;font:700 11px/1.4 Arial,sans-serif!important;}
+    .ak-suggest-badge{margin-left:auto!important;padding:2px 7px!important;border-radius:999px!important;background:#7c3aed!important;color:#fff!important;
+      font:800 10px/1.4 Arial,sans-serif!important;font-style:normal!important;}
     .ak-package-note{flex:1!important;min-width:200px!important;font:600 11px/1.5 Arial,sans-serif!important;color:#6b7280!important;}
 
     /* ---------- Preview obat terpilih ---------- */
@@ -5067,6 +5476,9 @@
       getWeightTemplate,
       getWeightRecipeTemplate,
       parseWeightKg,
+      parseWeightFromVitalsText,
+      ANAMNESIS_SUGGESTION_RULES,
+      suggestMedicationsFromAnamnesis,
       parsePatientAge,
       formatPatientAge,
       auditMedicationPackageDefinitions,
