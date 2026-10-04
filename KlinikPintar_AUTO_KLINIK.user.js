@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Klinik Pintar - AUTO KLINIK
 // @namespace    klinikpintar-auto
-// @version      9.4.0
+// @version      9.5.0
 // @description  AUTO KLINIK untuk os.klinikpintar.id — ISPA Dewasa, Resume, Resep Manual, Paket Resep Golongan. Tidak pernah menekan Simpan otomatis.
 // @author       taufanmtknight-debug
 // @match        https://os.klinikpintar.id/*
@@ -34,7 +34,7 @@
 
   // Versi diambil dari header (GM_info) agar label launcher tidak pernah beda
   // dengan @version. Nilai cadangan WAJIB sama dengan @version (dicek oleh test).
-  const SCRIPT_VERSION_FALLBACK = "9.4.0";
+  const SCRIPT_VERSION_FALLBACK = "9.5.0";
   const VERSION =
     (typeof GM_info !== "undefined" && GM_info?.script?.version) ||
     SCRIPT_VERSION_FALLBACK;
@@ -997,9 +997,18 @@
       child: ["BAPIL_2_ANAK"],
     },
     {
-      label: "Nyeri tenggorok / amandel",
+      // v9.5: nyeri tenggorok biasa = paket ISPA (sesuai resep dokter di klinik:
+      // "tenggorokan nyeri" -> Dexamethasone + Vit B + Alpara), tanpa antibiotik.
+      label: "Nyeri tenggorok",
+      pattern: /(?:nyeri|sakit|perih|gatal)\s+(?:saat\s+)?(?:menelan|telan|tenggorok\w*)|tenggorok\w*\s+(?:sakit|nyeri|perih|gatal)|\bfaring\w*/,
+      adult: ["ALPARA_DEWASA", "DEXAMETHASONE_05", "VITAMIN_B_COMPLEX"],
+      child: ["ISPA_ANAK"],
+    },
+    {
+      // Amandel/tonsil meradang -> antibiotik + dexamethasone.
+      label: "Radang amandel",
       // v9.4: "radang" saja tidak dipakai lagi ("radang sendi" dulu memicu antibiotik).
-      pattern: /radang\s+(?:tenggorok\w*|amandel|tonsil)|tonsil|amandel|faring|(?:nyeri|sakit)\s+(?:saat\s+)?(?:menelan|telan|tenggorok\w*)|tenggorok\w*\s+(?:sakit|nyeri|perih)/,
+      pattern: /radang\s+(?:tenggorok\w*|amandel|tonsil)|tonsil\w*|amandel/,
       adult: ["AMOXICILLIN_500_DEWASA", "DEXAMETHASONE_05"],
       child: ["AMOXICILLIN_500_RACIKAN_BARU"],
     },
@@ -1029,7 +1038,7 @@
     },
     {
       label: "Infeksi kulit (bisul/abses)",
-      pattern: /bisul|(?<!gigi\s)abses(?!\s+gigi)|bernanah|nanah|furunkel|impetigo|selulitis|luka\s+(?:infeksi|meradang)|infeksi\s+kulit/,
+      pattern: /bisul|(?<!gigi\s)abses(?!\s+gigi)|bernanah|nanah|furunkel|impetigo|selulitis|luka\b[^.;\n]{0,40}?(?:infeksi|meradang|radang|bernanah|berair|bengkak|kemerahan)|infeksi\s+kulit/,
       adult: ["CEFADROXIL_500_DEWASA", "PARACETAMOL_DEWASA"],
       child: ["CEFADROXIL_PUYER_ANAK", "PARACETAMOL_ANAK"],
     },
@@ -1665,11 +1674,20 @@
   }
 
   async function addService() {
-    const btn = findButtonByTexts([
-      "Tambah Layanan/Tindakan",
-      "Tambah Layanan / Tindakan",
-    ]);
-    if (!btn) throw new Error("Tombol Tambah Layanan/Tindakan tidak ditemukan");
+    // v9.5: bila layanan sudah ada (tombol berubah jadi "Ubah Layanan/Tindakan"
+    // dan kartu layanan tampil), jangan buka modal lagi. Dulu proses berhenti
+    // karena tombol "Tambah Layanan/Tindakan" tidak ditemukan.
+    const editBtn = findButtonByTexts(["Ubah Layanan/Tindakan", "Ubah Layanan / Tindakan"]);
+    const pageText = norm(
+      [...(document.body?.children || [])].filter((el) => !isOwnUi(el)).map(text).join(" "),
+    );
+    if (editBtn && pageText.includes(norm(TEMPLATE.service))) {
+      LOG("Layanan sudah ada -> dilewati");
+      return;
+    }
+    const btn =
+      findButtonByTexts(["Tambah Layanan/Tindakan", "Tambah Layanan / Tindakan"]) || editBtn;
+    if (!btn) throw new Error("Tombol Tambah/Ubah Layanan/Tindakan tidak ditemukan");
     click(btn);
     const modal = await waitFor(
       () => {
@@ -1694,21 +1712,32 @@
       findContainsTextClick(TEMPLATE.service, modal) ||
       findContainsTextClick("Dokter Umum Jasa Konsultasi", modal);
     if (!serviceRow) {
-      const inputs = all("input", modal);
-      const search =
-        inputs.find((i) => norm(i.placeholder).includes("cari layanan")) ||
-        inputs[0];
-      if (!search) throw new Error("Pencarian layanan tidak ditemukan");
+      // "Cari Layanan" adalah pilihan Ant Select (teks placeholder, bukan atribut
+      // placeholder input). v9.5: dulu bisa mengetik ke kolom pertama di modal
+      // (mis. kolom Jumlah) bila placeholder tidak ditemukan.
+      let search = all("input", modal).find((i) => norm(i.placeholder).includes("cari layanan"));
+      if (!search) {
+        const ph = findExactTextClick("Cari Layanan", modal);
+        const control = ph?.closest?.(".ant-select") || ph;
+        if (control) {
+          dispatchPointerClick(control);
+          await sleep(250);
+          search = getEditableInput(control);
+        }
+      }
+      if (!search) throw new Error("Kolom Cari Layanan tidak ditemukan");
       nativeSetValue(search, "Dokter Umum Jasa Konsultasi");
       await sleep(500);
       const opt = await waitFor(
-        () => findContainsTextClick(TEMPLATE.service, modal),
+        () =>
+          findExactTargetOption(TEMPLATE.service) ||
+          findContainsTextClick(TEMPLATE.service, modal),
         6000,
         150,
         "layanan dokter umum",
       );
-      click(opt);
-      await sleep(300);
+      dispatchOptionSelection(opt);
+      await sleep(400);
     }
     const save = findButtonByTexts(["Simpan Layanan", "Simpan"], modal);
     if (!save) throw new Error("Tombol Simpan Layanan tidak ditemukan");
@@ -1828,7 +1857,11 @@
     for (let i = normText.indexOf(normTarget); i >= 0; i = normText.indexOf(normTarget, i + 1)) {
       const before = normText[i - 1] || "";
       const after = normText.slice(i + normTarget.length);
-      if (/[a-z0-9]/.test(before) || /^[a-z0-9]/.test(after)) continue;
+      if (/[a-z0-9]/.test(before)) continue;
+      // Huruf/angka langsung menempel = nama lain ("alparax"), kecuali label/harga
+      // yang ikut tergabung tanpa spasi ("... 0,5 mgkode : ...", "alpararp 1.500").
+      if (/^[a-z0-9]/.test(after) && !/^(?:rp|kode|stok|sisa|harga|per\b|catatan)/.test(after))
+        continue;
       if (ITEM_VARIANT_SUFFIX.test(after)) continue;
       return true;
     }
@@ -1929,7 +1962,7 @@
   }
 
   // Baris obat di form resep = elemen TERKECIL yang memuat nama obat DAN
-  // minimal 2 kolom isian. v9.4: pilihan di dropdown pencarian tidak lagi dianggap
+  // minimal 4 kolom isian. v9.4: pilihan di dropdown pencarian tidak lagi dianggap
   // baris (dulu ikut terhitung sehingga script mengira obat sudah masuk padahal
   // belum, lalu berhenti dengan "Field resep tidak lengkap").
   const DROPDOWN_SCOPE =
@@ -1955,7 +1988,9 @@
           visible(i) &&
           !norm(i.getAttribute("placeholder") || "").includes("cari obat"),
       );
-      if (inputs.length >= 2) return el;
+      // Frekuensi, dosis, hari, jumlah = minimal 4 kolom (v9.5; dulu 2, sehingga
+      // wadah kecil berisi nama + baris pertama saja bisa dikira baris obat).
+      if (inputs.length >= 4) return el;
     }
     return null;
   }
@@ -2113,9 +2148,30 @@
     return nodes.sort((a, b) => text(a).length - text(b).length)[0] || null;
   }
 
+  // Baris obat Klinik Pintar (dari screenshot): baris 1 = [nama obat] [frek] x [dosis]
+  // [hari] [Satuan Pemakaian ▾] [Instruksi ▾]; baris 2 = [jumlah] [satuan ▾].
+  // Pilihan Satuan Pemakaian & Instruksi = dua pilihan di KANAN kolom frekuensi,
+  // sejajar baris 1. Dipakai bila teks placeholder "Instruksi"/"Satuan Pemakaian"
+  // tidak tampil (mis. sudah berisi nilai bawaan seperti "Tablet"/"Setelah Makan").
+  function rowSignaSelects(row) {
+    const freq = classifyRecipeInputs(row).freq;
+    if (!freq) return [];
+    const fr = freq.getBoundingClientRect();
+    const midY = fr.top + fr.height / 2;
+    return [...row.querySelectorAll(".ant-select")]
+      .filter((el) => visible(el) && !isDangerousDeleteElement(el) && !el.parentElement?.closest(".ant-select"))
+      .map((el) => ({ el, r: el.getBoundingClientRect() }))
+      .filter(({ r }) => r.width > 0 && r.left > fr.right && Math.abs(r.top + r.height / 2 - midY) <= 20)
+      .sort((a, b) => a.r.left - b.r.left)
+      .map(({ el }) => el);
+  }
+
   function findInstructionControl(row) {
     const label = findInstructionLabelInRow(row);
-    if (!label) return null;
+    if (!label) {
+      const selects = rowSignaSelects(row);
+      return selects.length >= 2 ? selects[selects.length - 1] : null;
+    }
 
     // Walk upward from the exact visible word "Instruksi" and stop at the
     // smallest element that is actually interactive or contains an interactive
@@ -2823,6 +2879,15 @@
     return null;
   }
 
+  // Untuk baris obat: label "Satuan Pemakaian", atau pilihan pertama di kanan kolom
+  // frekuensi (lihat rowSignaSelects). Racikan tetap memakai findUnitUsageControl.
+  function findRowUnitUsageControl(row) {
+    const byLabel = findUnitUsageControl(row);
+    if (byLabel) return byLabel;
+    const selects = rowSignaSelects(row);
+    return selects.length >= 2 ? selects[0] : null;
+  }
+
   function findUnitUsageCustomInput(row, beforeInputs = []) {
     const before = new Set(beforeInputs || []);
     const inputs = [
@@ -2848,7 +2913,7 @@
     const newlyAdded = inputs.find((i) => !before.has(i));
     if (newlyAdded) return newlyAdded;
 
-    const control = findUnitUsageControl(row);
+    const control = findRowUnitUsageControl(row);
     const cr = control?.getBoundingClientRect?.();
     if (!cr) return null;
 
@@ -2868,7 +2933,7 @@
 
   async function selectUnitUsagePreset(row, unitText, itemName) {
     const control = await waitFor(
-      () => findUnitUsageControl(row),
+      () => findRowUnitUsageControl(row),
       3500,
       60,
       `kolom Satuan Pemakaian ${itemName}`,
@@ -2902,7 +2967,7 @@
     const verified = await waitFor(
       () =>
         instructionSelected(row, unitText) ||
-        norm(text(findUnitUsageControl(row))) === norm(unitText),
+        norm(text(findRowUnitUsageControl(row))) === norm(unitText),
       2200,
       60,
       `verifikasi Satuan Pemakaian ${itemName}`,
@@ -2919,7 +2984,7 @@
 
   async function setUnitUsageForMedicalSupply(row, itemName) {
     const control = await waitFor(
-      () => findUnitUsageControl(row),
+      () => findRowUnitUsageControl(row),
       3500,
       60,
       `kolom Satuan Pemakaian ${itemName}`,
