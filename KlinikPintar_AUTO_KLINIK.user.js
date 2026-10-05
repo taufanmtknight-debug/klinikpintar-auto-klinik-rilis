@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Klinik Pintar - AUTO KLINIK
 // @namespace    klinikpintar-auto
-// @version      10.0.2
+// @version      10.0.3
 // @description  AUTO KLINIK untuk os.klinikpintar.id — ISPA Dewasa, Resume, Resep Manual, Paket Resep Golongan. Tidak pernah menekan Simpan otomatis.
 // @author       taufanmtknight-debug
 // @match        https://os.klinikpintar.id/*
@@ -34,7 +34,7 @@
 
   // Versi diambil dari header (GM_info) agar label launcher tidak pernah beda
   // dengan @version. Nilai cadangan WAJIB sama dengan @version (dicek oleh test).
-  const SCRIPT_VERSION_FALLBACK = "10.0.2";
+  const SCRIPT_VERSION_FALLBACK = "10.0.3";
   const VERSION =
     (typeof GM_info !== "undefined" && GM_info?.script?.version) ||
     SCRIPT_VERSION_FALLBACK;
@@ -2512,17 +2512,23 @@
   }
 
   // Ketik kata kunci di Cari Obat, klik pilihan bernama `target`, tunggu barisnya.
-  async function addItemFromSearch(modal, item, where) {
+  // v10.0.3: getModal() dibaca ulang setiap langkah (Klinik Pintar bisa membuat ulang
+  // dialog saat berganti Buat Resep <-> Buat Racikan), dan kolom Cari Obat DITUNGGU
+  // sampai muncul. Di HP yang lebih lambat kolom ini belum ada sesaat setelah form
+  // racikan terbuka / bahan sebelumnya masuk ("Kolom Cari Obat racikan tidak ditemukan").
+  async function addItemFromSearch(getModal, item, where) {
     for (let attempt = 1; attempt <= 2; attempt++) {
-      const existing = itemRowFor(modal, item.target);
+      const existing = itemRowFor(getModal(), item.target);
       if (existing) return existing;
-      const search = findItemSearchRoot(modal);
+      const search = await waitFor(() => findItemSearchRoot(getModal()), 15000, 150, `kolom Cari Obat ${where}`).catch(
+        () => null,
+      );
       if (!search) throw new Error(`Kolom Cari Obat ${where} tidak ditemukan`);
       await msPick(search, (opts) => pickBestItemOption(opts, item.target), item.target, {
         typed: item.keyword,
         timeout: 10000,
       });
-      const row = await waitFor(() => itemRowFor(modal, item.target), 6000, 120, `baris ${item.target}`).catch(
+      const row = await waitFor(() => itemRowFor(getModal(), item.target), 8000, 120, `baris ${item.target}`).catch(
         () => null,
       );
       if (row) return row;
@@ -2570,7 +2576,7 @@
         continue;
       }
       LOG(`Resep ${i + 1}/${medicines.length}: ${drug.key}`);
-      await addItemFromSearch(modal, { target: drug.key, keyword: drug.search }, "resep");
+      await addItemFromSearch(() => findPrescriptionModal() || modal, { target: drug.key, keyword: drug.search }, "resep");
       await configureMedicationRow(drug);
       added.push(drug);
       // Peringatan stok (resep tetap diisi; dokter yang memutuskan).
@@ -2647,14 +2653,22 @@
       "tombol Buat Racikan Baru",
     );
     click(btn);
-    return waitFor(() => findRacikanModal(), 7000, 100, "form Buat Racikan");
+    return waitFor(
+      () => {
+        const m = findRacikanModal();
+        return m && findItemSearchRoot(m) ? m : null;
+      },
+      15000,
+      150,
+      "form Buat Racikan",
+    );
   }
 
   // Pilih satu bahan racikan dan isi jumlahnya. Mengembalikan kolom jumlahnya.
   async function selectRacikanIngredient(modal, ingredient) {
     const item = ITEMS[ingredient.item];
     if (!item) throw new Error(`Bahan racikan tidak ditemukan: ${ingredient.item}`);
-    const row = await addItemFromSearch(modal, item, "racikan");
+    const row = await addItemFromSearch(() => findRacikanModal() || modal, item, "racikan");
     const qty = [...row.querySelectorAll('input:not([type="hidden"])')].find(
       (i) => visible(i) && !i.disabled && !i.readOnly && !i.closest(MS_ROOT),
     );
@@ -2720,12 +2734,13 @@
   }
 
   async function addRacikan(tpl) {
-    const modal = await openRacikanForm();
+    const opened = await openRacikanForm();
+    const cur = () => findRacikanModal() || opened;
     const title = tpl.title || tpl.name || "racikan";
 
     const checks = [];
     for (const ingredient of tpl.ingredients) {
-      const input = await selectRacikanIngredient(modal, ingredient);
+      const input = await selectRacikanIngredient(cur(), ingredient);
       checks.push({
         input,
         value: String(ingredient.quantity),
@@ -2734,7 +2749,7 @@
       await sleep(220);
     }
 
-    const header = await setRacikanHeaderFields(modal, tpl);
+    const header = await setRacikanHeaderFields(cur(), tpl);
     checks.push(...header.filled);
 
     // Periksa ulang SEMUA kolom tepat sebelum simpan: kolom yang diisi lebih awal
@@ -2762,7 +2777,7 @@
     // Tombol Simpan Racikan baru aktif bila semua kolom wajib sudah valid.
     const save = await waitFor(
       () => {
-        const b = findButtonByTexts(["Simpan Racikan"], modal);
+        const b = findButtonByTexts(["Simpan Racikan"], cur());
         return b && !b.disabled ? b : null;
       },
       5000,
@@ -2770,7 +2785,7 @@
       "tombol Simpan Racikan aktif",
     ).catch(() => null);
     if (!save) {
-      const errors = racikanValidationErrors(modal);
+      const errors = racikanValidationErrors(cur());
       throw new Error(
         `${title} belum disimpan: tombol Simpan Racikan belum aktif${errors ? ` (${errors})` : ""}. Periksa form racikan.`,
       );
@@ -2785,7 +2800,7 @@
       "form racikan tertutup",
     ).catch(() => false);
     if (!closed) {
-      const errors = racikanValidationErrors(modal);
+      const errors = racikanValidationErrors(cur());
       throw new Error(`${title} belum tersimpan${errors ? `: ${errors}` : ""}. Periksa form racikan yang masih terbuka.`);
     }
     await sleep(400);
