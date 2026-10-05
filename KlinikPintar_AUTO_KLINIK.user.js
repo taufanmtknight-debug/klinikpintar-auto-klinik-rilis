@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Klinik Pintar - AUTO KLINIK
 // @namespace    klinikpintar-auto
-// @version      10.0.0
+// @version      10.0.1
 // @description  AUTO KLINIK untuk os.klinikpintar.id — ISPA Dewasa, Resume, Resep Manual, Paket Resep Golongan. Tidak pernah menekan Simpan otomatis.
 // @author       taufanmtknight-debug
 // @match        https://os.klinikpintar.id/*
@@ -34,7 +34,7 @@
 
   // Versi diambil dari header (GM_info) agar label launcher tidak pernah beda
   // dengan @version. Nilai cadangan WAJIB sama dengan @version (dicek oleh test).
-  const SCRIPT_VERSION_FALLBACK = "10.0.0";
+  const SCRIPT_VERSION_FALLBACK = "10.0.1";
   const VERSION =
     (typeof GM_info !== "undefined" && GM_info?.script?.version) ||
     SCRIPT_VERSION_FALLBACK;
@@ -1696,9 +1696,29 @@
     return !!box && !box.classList.contains("hidden") && visible(box);
   }
 
+  // v10.0.1: SEMUA pilihan, juga saat daftar tidak mau terbuka. Di situs asli daftar
+  // kadang tetap tertutup (mis. Status Pulang setelah dialog Layanan ditutup, atau di
+  // HP), padahal <li> sudah ada dan tetap bisa diklik. Yang terlihat didahulukan.
   function msOptions(root) {
     const box = msBox(root);
-    return box ? [...box.querySelectorAll("li")].filter(visible) : [];
+    if (!box) return [];
+    const lis = [...box.querySelectorAll("li")].filter((li) => li.isConnected && !isOwnUi(li));
+    return [...lis.filter(visible), ...lis.filter((li) => !visible(li))];
+  }
+
+  // Teks pilihan tanpa tooltip tersembunyi ("Obat Keras", "Rxpert"), dengan spasi antar
+  // bagian ("J06" + "Acute ..."). Tidak bergantung pada tampil/tidaknya daftar.
+  function optionText(li) {
+    if (!li) return "";
+    const parts = [];
+    const walk = (node) => {
+      for (const c of node.childNodes) {
+        if (c.nodeType === 3) parts.push(c.nodeValue);
+        else if (c.nodeType === 1 && !/display\s*:\s*none/i.test(c.getAttribute("style") || "")) walk(c);
+      }
+    };
+    walk(li);
+    return parts.join(" ").replace(/\s+/g, " ").trim();
   }
 
   // Teks semua pilihan, juga saat daftar tertutup (untuk mengenali jenis kolom).
@@ -1731,14 +1751,15 @@
     } catch (_) {}
     const opened = () => (msIsOpen(root) ? true : null);
     if (await waitFor(opened, 700, 50, "daftar pilihan").catch(() => false)) return true;
-    // Cadangan: vueform juga membuka daftar lewat mousedown pada akar.
+    // Cadangan: vueform juga membuka daftar lewat mousedown pada akar. Bila tetap
+    // tertutup, pilihan tersembunyi tetap dipakai (lihat msOptions).
     try {
       root.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true }));
     } catch (_) {}
-    return waitFor(opened, 1500, 50, "daftar pilihan").catch(() => false);
+    return waitFor(opened, 800, 50, "daftar pilihan").catch(() => false);
   }
 
-  const msExact = (wanted) => (opts) => opts.find((o) => norm(text(o)) === norm(wanted)) || null;
+  const msExact = (wanted) => (opts) => opts.find((o) => norm(optionText(o)) === norm(wanted)) || null;
 
   // Buka kolom pilihan, (opsional) ketik kata kunci, tunggu pilihan yang cocok
   // menurut `pick(daftarLi)`, lalu klik pilihan itu.
@@ -1765,7 +1786,7 @@
     if (!option) {
       const seen = msOptions(root)
         .slice(0, 5)
-        .map((o) => text(o).slice(0, 60));
+        .map((o) => optionText(o).slice(0, 60));
       msClose();
       throw new Error(
         `${label}: pilihan tidak ditemukan.` +
@@ -1774,6 +1795,7 @@
     }
     click(option);
     await sleep(250);
+    if (!msIsOpen(root)) msClose(); // jangan biarkan fokus tertinggal di kolom ini
     return option;
   }
 
@@ -1880,7 +1902,7 @@
   // Pilihan ICD tampil sebagai "J06  Acute upper ... (Spesialis)". Kode diambil
   // dari awal teks pilihan, lalu dicocokkan PERSIS (J06 ≠ J06.0 / J06.8 / J06.9).
   function optionIcdCode(opt) {
-    const m = norm(text(opt)).match(/^([a-z]\d{2}(?:\.\d{1,2})?)\b/);
+    const m = norm(optionText(opt)).match(/^([a-z]\d{2}(?:\.\d{1,2})?)\b/);
     return m ? m[1].toUpperCase() : "";
   }
 
@@ -2091,7 +2113,7 @@
   // Urutan prioritas pilihan: nama persis -> diawali nama utuh -> memuat nama utuh.
   function pickBestItemOption(options, target) {
     const wanted = norm(target);
-    const texts = [...new Set(options)].map((o) => [o, norm(text(o))]);
+    const texts = [...new Set(options)].map((o) => [o, norm(o?.tagName === "LI" ? optionText(o) : text(o))]);
     return (
       texts.find(([, t]) => optionItemName(t) === wanted || t === wanted)?.[0] ||
       texts.find(([, t]) => t.startsWith(wanted) && containsItemName(t, wanted))?.[0] ||
@@ -2287,7 +2309,11 @@
   // sudah dipilih (baris obat memuat "Kode : ...").
   function findItemSearchRoot(modal) {
     if (!modal) return null;
-    return msRoots(modal).find((r) => msInput(r) && !/kode\s*:/i.test(text(r.closest("tr")))) || null;
+    // v10.0.1: tidak harus "terlihat" (di HP kolom ini sempat dianggap hilang).
+    const roots = [...modal.querySelectorAll(MS_ROOT)].filter(
+      (r) => msInput(r) && !isOwnUi(r) && !/kode\s*:/i.test(r.closest("tr")?.textContent || ""),
+    );
+    return roots.find(visible) || roots[0] || null;
   }
 
   // Nama obat di baris terpilih = pilihan TANPA kolom cari di baris itu.
@@ -2382,7 +2408,7 @@
     let custom = recipeRowFields(row).custom;
     if (!custom) {
       if (!instr) throw new Error(`Kolom Instruksi ${itemName} tidak ditemukan`);
-      await msPick(instr, (opts) => opts.find((o) => /^lainnya/.test(norm(text(o)))) || null, `Instruksi ${itemName}`);
+      await msPick(instr, (opts) => opts.find((o) => /^lainnya/.test(norm(optionText(o)))) || null, `Instruksi ${itemName}`);
       custom = await waitFor(() => recipeRowFields(row).custom, 3500, 80, `kolom teks Instruksi ${itemName}`);
     }
     await setRecipeInputVerified(custom, instruction, `Instruksi ${itemName}`);
@@ -2512,7 +2538,7 @@
         'Klinik Pintar belum selesai memuat resep ("Sedang Memeriksa List Obat & Resep"). Tunggu sebentar lalu jalankan lagi.',
       );
     }
-    await waitFor(() => findItemSearchRoot(modal), 5000, 120, "kolom Cari Obat");
+    await waitFor(() => findItemSearchRoot(modal), 15000, 150, "kolom Cari Obat");
     return modal;
   }
 
