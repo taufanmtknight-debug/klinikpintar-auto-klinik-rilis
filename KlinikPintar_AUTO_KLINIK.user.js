@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Klinik Pintar - AUTO KLINIK
 // @namespace    klinikpintar-auto
-// @version      10.0.1
+// @version      10.0.2
 // @description  AUTO KLINIK untuk os.klinikpintar.id — ISPA Dewasa, Resume, Resep Manual, Paket Resep Golongan. Tidak pernah menekan Simpan otomatis.
 // @author       taufanmtknight-debug
 // @match        https://os.klinikpintar.id/*
@@ -34,7 +34,7 @@
 
   // Versi diambil dari header (GM_info) agar label launcher tidak pernah beda
   // dengan @version. Nilai cadangan WAJIB sama dengan @version (dicek oleh test).
-  const SCRIPT_VERSION_FALLBACK = "10.0.1";
+  const SCRIPT_VERSION_FALLBACK = "10.0.2";
   const VERSION =
     (typeof GM_info !== "undefined" && GM_info?.script?.version) ||
     SCRIPT_VERSION_FALLBACK;
@@ -1916,7 +1916,8 @@
         const name = text(document.getElementById(`txt_icd_10_english_name_${n}`))
           .replace(/\s*\((?:non\s+)?spesialis\)\s*$/i, "")
           .trim();
-        return { code: code.toUpperCase(), name };
+        const role = /\bsekunder\b/i.test(text(el)) ? "Sekunder" : "Primer";
+        return { code: code.toUpperCase(), name, role };
       });
   }
 
@@ -2014,13 +2015,15 @@
     if (!btn || !visible(btn)) throw new Error("Tombol Tambah/Ubah Layanan/Tindakan tidak ditemukan");
     click(btn);
     const modal = await waitFor(() => findDialogByTitle(/layanan/i), 7000, 150, "dialog Layanan/Tindakan");
-    await waitDialogReady(modal, "daftar layanan", 20000);
+    // v10.0.2: tidak menunggu "Sedang memeriksa List Layanan / Tindakan" (bisa lama);
+    // pencarian layanan sudah bisa dipakai sejak dialog terbuka.
+    await sleep(300);
 
     const hasService = () =>
       msRoots(modal).some((r) => !msInput(r) && norm(msShown(r)) === norm(TEMPLATE.service));
     if (!hasService()) {
       const search = msRoots(modal).find((r) => msInput(r));
-      await msPick(search, msExact(TEMPLATE.service), "Cari Layanan", { typed: "Dokter Umum Jasa Konsultasi" });
+      await msPick(search, msExact(TEMPLATE.service), "Cari Layanan", { typed: "BPJS - Dokter Umum", timeout: 15000 });
       const ok = await waitFor(() => (hasService() ? true : null), 5000, 150, "layanan").catch(() => false);
       if (!ok) throw new Error(`Layanan ${TEMPLATE.service} belum masuk ke daftar.`);
     }
@@ -2309,11 +2312,19 @@
   // sudah dipilih (baris obat memuat "Kode : ...").
   function findItemSearchRoot(modal) {
     if (!modal) return null;
-    // v10.0.1: tidak harus "terlihat" (di HP kolom ini sempat dianggap hilang).
-    const roots = [...modal.querySelectorAll(MS_ROOT)].filter(
-      (r) => msInput(r) && !isOwnUi(r) && !/kode\s*:/i.test(r.closest("tr")?.textContent || ""),
-    );
-    return roots.find(visible) || roots[0] || null;
+    // v10.0.2: urutan halaman, bukan "yang terlihat dulu". Di HP, Cari Obat racikan
+    // sempat dianggap tidak terlihat sehingga nama bahan (POT PLASTIK) diketik ke kolom
+    // Satuan Pemakaian. Cari Obat selalu pilihan PERTAMA (di atas daftar resep / baris
+    // pertama daftar bahan); baris obat terpilih dan Satuan Pemakaian dikecualikan.
+    const unitRoot = msRootByLabel("Satuan Pemakaian", modal);
+    const roots = [...modal.querySelectorAll(MS_ROOT)].filter((r) => {
+      if (!msInput(r) || isOwnUi(r) || r === unitRoot) return false;
+      const tr = r.closest("tr");
+      if (tr && (rowItemName(tr) || /kode\s*:/i.test(text(tr)))) return false;
+      const label = r.closest("div")?.parentElement?.querySelector("label");
+      return !(label && /satuan|instruksi/i.test(text(label)));
+    });
+    return roots[0] || null;
   }
 
   // Nama obat di baris terpilih = pilihan TANPA kolom cari di baris itu.
@@ -3867,7 +3878,14 @@
 
   // options.diagnosis: diagnosis yang baru diisi RESUME + DIAGNOSIS (obatnya ikut dicentang).
   function renderMedicationGroupPackagePicker(options = {}) {
-    const presetDiagnosis = options.diagnosis || null;
+    // Diagnosis yang sudah terinput di halaman (kartu ICD + kolom Diagnosa).
+    const pageIcd = selectedIcdEntries();
+    const pageDiagnosisText = readFieldText("Diagnosa");
+    const icdDiagnosis =
+      pageIcd
+        .map((e) => DIAGNOSIS_TEMPLATES.find((d) => d.icd.some((c) => c.toUpperCase() === e.code)))
+        .find(Boolean) || null;
+    const presetDiagnosis = options.diagnosis || icdDiagnosis;
     const old = document.getElementById("ak-medgroup-picker");
     if (old) old.remove();
     // Baca halaman SEBELUM overlay dipasang, agar kolom milik overlay tidak ikut terbaca.
@@ -3894,6 +3912,10 @@
       </div>
       <div id="ak-medgroup-weight-source" class="akm-hint"></div>
       <div id="ak-medgroup-vitals" class="akm-vitals"></div>
+    </section>
+    <section class="akm-sec akm-diagnosis">
+      <div class="akm-sec-title">🩺 Diagnosis terinput</div>
+      <div id="ak-medgroup-dx" class="akm-dx"></div>
     </section>
     <section class="akm-sec akm-anamnesa">
       <div class="akm-sec-title">📝 Keluhan Utama <button id="ak-medgroup-resuggest" class="akm-link" type="button">↻ Baca ulang</button></div>
@@ -3962,6 +3984,18 @@
       shade.querySelector("#ak-medgroup-vitals").innerHTML = summary
         ? `<b>TTV:</b> ${escapePreviewHtml(summary)}${flagsHtml ? `<div>${flagsHtml}</div>` : ""}`
         : '<span class="akm-hint">TTV kunjungan ini belum terbaca.</span>';
+    }
+    {
+      const rows = pageIcd.map(
+        (e) =>
+          `<div class="akm-dx-row"><b>${escapePreviewHtml(e.code)}</b> <span class="akm-dx-role">${e.role}</span> ${escapePreviewHtml(e.name)}</div>`,
+      );
+      if (pageDiagnosisText) rows.push(`<div class="akm-hint">Diagnosa: ${escapePreviewHtml(pageDiagnosisText)}</div>`);
+      if (presetDiagnosis)
+        rows.push(`<div class="akm-hint">Saran obat ikut diagnosis <b>${escapePreviewHtml(presetDiagnosis.label)}</b>.</div>`);
+      shade.querySelector("#ak-medgroup-dx").innerHTML = rows.length
+        ? rows.join("")
+        : '<span class="akm-hint akm-missing">Belum ada Diagnosa / ICD 10 yang terisi.</span>';
     }
     anamnesisEl.value = pageComplaint.text;
     setAnamnesisSource(pageComplaint.source);
@@ -4580,6 +4614,8 @@
 
     /* ---------- Paket Resep Golongan ---------- */
     .ak-package-step{margin-top:16px!important;}
+    .akm-dx-row{font:12px/1.5 Arial,sans-serif!important;color:#334155!important;}
+    .akm-dx-role{font:600 10px Arial,sans-serif!important;color:#0284c7!important;border:1px solid #bae6fd!important;border-radius:4px!important;padding:0 4px!important;margin-right:4px!important;}
     .akm-vitals{margin-top:6px!important;font:600 12px/1.5 Arial,sans-serif!important;color:#334155!important;}
     .akm-vflag{display:inline-block!important;margin:3px 4px 0 0!important;padding:1px 7px!important;border-radius:999px!important;font:700 11px Arial,sans-serif!important;}
     .akm-vflag.warn{background:#fef3c7!important;color:#92400e!important;}
