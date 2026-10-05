@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Klinik Pintar - AUTO KLINIK
 // @namespace    klinikpintar-auto
-// @version      10.0.4
+// @version      10.0.5
 // @description  AUTO KLINIK untuk os.klinikpintar.id — ISPA Dewasa, Resume, Resep Manual, Paket Resep Golongan. Tidak pernah menekan Simpan otomatis.
 // @author       taufanmtknight-debug
 // @match        https://os.klinikpintar.id/*
@@ -34,7 +34,7 @@
 
   // Versi diambil dari header (GM_info) agar label launcher tidak pernah beda
   // dengan @version. Nilai cadangan WAJIB sama dengan @version (dicek oleh test).
-  const SCRIPT_VERSION_FALLBACK = "10.0.4";
+  const SCRIPT_VERSION_FALLBACK = "10.0.5";
   const VERSION =
     (typeof GM_info !== "undefined" && GM_info?.script?.version) ||
     SCRIPT_VERSION_FALLBACK;
@@ -2016,22 +2016,34 @@
 
     const hasService = () =>
       msRoots(modal).some((r) => !msInput(r) && norm(msShown(r)) === norm(TEMPLATE.service));
-    if (!hasService()) {
-      const search = msRoots(modal).find((r) => msInput(r));
-      await msPick(search, msExact(TEMPLATE.service), "Cari Layanan", { typed: "BPJS - Dokter Umum", timeout: 15000 });
-      const ok = await waitFor(() => (hasService() ? true : null), 25000, 150, "layanan").catch(() => false);
-      if (!ok) throw new Error(`Layanan ${TEMPLATE.service} belum masuk ke daftar.`);
+    // v10.0.5: bila gagal, dialog ditutup (Batal) supaya tidak menghalangi langkah
+    // berikutnya (Status Pulang, Tambah Obat).
+    const cancel = async () => {
+      const batal = findButtonByTexts(["Batal"], findDialogByTitle(/layanan/i) || modal);
+      if (batal) click(batal);
+      await waitFor(() => (findDialogByTitle(/layanan/i) ? null : true), 4000, 150, "dialog layanan").catch(() => false);
+    };
+    try {
+      if (!hasService()) {
+        const search = msRoots(modal).find((r) => msInput(r));
+        await msPick(search, msExact(TEMPLATE.service), "Cari Layanan", { typed: "BPJS - Dokter Umum", timeout: 15000 });
+        const ok = await waitFor(() => (hasService() ? true : null), 25000, 150, "layanan").catch(() => false);
+        if (!ok) throw new Error(`Layanan ${TEMPLATE.service} belum masuk ke daftar.`);
+      }
+      const save = findButtonByTexts(["Simpan Layanan"], modal);
+      if (!save) throw new Error("Tombol Simpan Layanan tidak ditemukan");
+      click(save);
+      const closed = await waitFor(
+        () => (findDialogByTitle(/layanan/i) ? null : true),
+        8000,
+        150,
+        "dialog layanan tertutup",
+      ).catch(() => false);
+      if (!closed) throw new Error("Simpan Layanan ditolak Klinik Pintar (periksa isian layanan).");
+    } catch (e) {
+      await cancel();
+      throw e;
     }
-    const save = findButtonByTexts(["Simpan Layanan"], modal);
-    if (!save) throw new Error("Tombol Simpan Layanan tidak ditemukan");
-    click(save);
-    const closed = await waitFor(
-      () => (findDialogByTitle(/layanan/i) ? null : true),
-      6000,
-      150,
-      "dialog layanan tertutup",
-    ).catch(() => false);
-    if (!closed) throw new Error("Dialog Layanan masih terbuka setelah Simpan Layanan. Periksa isian layanan.");
     LOG("Layanan OK");
   }
 
@@ -2519,10 +2531,17 @@
         () => null,
       );
       if (!search) throw new Error(`Kolom Cari Obat ${where} tidak ditemukan`);
-      await msPick(search, (opts) => pickBestItemOption(opts, item.target), item.target, {
-        typed: item.keyword,
-        timeout: 10000,
-      });
+      try {
+        await msPick(search, (opts) => pickBestItemOption(opts, item.target), item.target, {
+          typed: item.keyword,
+          timeout: 10000,
+        });
+      } catch (e) {
+        if (!/pilihan tidak ditemukan/.test(e.message)) throw e;
+        throw new Error(
+          `${item.target} tidak ada di Cari Obat ${where} (stok kosong / nama berubah di Klinik Pintar).`,
+        );
+      }
       const row = await waitFor(() => itemRowFor(getModal(), item.target), 8000, 120, `baris ${item.target}`).catch(
         () => null,
       );
@@ -3811,6 +3830,7 @@
       throw new Error("Pilih minimal satu obat atau tindakan.");
 
     const seenMedicines = new Set();
+    const failedItems = [];
     const seenRacikan = new Set();
     const skipped = [];
     const identity = (m, sourceLabel = "") => {
@@ -3838,7 +3858,14 @@
         seenMedicines.add(id);
         return true;
       });
-      if (unique.length) await addRecipeItems(unique);
+      if (!unique.length) return;
+      // v10.0.5: satu obat gagal tidak menghentikan obat berikutnya.
+      try {
+        await addRecipeItems(unique);
+      } catch (e) {
+        if (findRacikanModal()) throw e; // form racikan terbuka: berhenti
+        failedItems.push(`${label} (${e?.message || e})`);
+      }
     };
 
     // Dipanggil di dalam runTask (kunci proses + status tombol ditangani di sana).
@@ -3882,8 +3909,9 @@
     }
 
     let msg = `PAKET RESEP selesai: kategori ${group === "adult" ? "DEWASA" : "ANAK"}. Review resep sebelum Simpan Resep.`;
+    if (failedItems.length) msg += ` GAGAL DIINPUT (tambahkan manual): ${failedItems.join("; ")}.`;
     if (skipped.length) msg += ` Catatan: ${skipped.join(", ")}.`;
-    notify(msg, skipped.length ? "warn" : "success", 12000);
+    notify(msg, failedItems.length ? "error" : skipped.length ? "warn" : "success", failedItems.length ? 25000 : 12000);
   }
 
   // options.diagnosis: diagnosis yang baru diisi RESUME + DIAGNOSIS (obatnya ikut dicentang).
@@ -4267,6 +4295,17 @@
     let dxResult = null;
     let dxDetected = null;
     let dxError = null;
+    // v10.0.5: tiap langkah RESUME berdiri sendiri. Dulu satu langkah gagal (mis.
+    // Layanan) menghentikan semuanya: Status Pulang kosong, Paket Resep tidak terbuka.
+    const failed = [];
+    const step = async (name, fn) => {
+      try {
+        await fn();
+      } catch (e) {
+        console.warn(`${label}: ${name} gagal`, e);
+        failed.push(`${name} (${e?.message || e})`);
+      }
+    };
 
     return runTask(label, async () => {
       if (!isMedicalRecordCreatePage()) {
@@ -4285,7 +4324,8 @@
         }
       }
 
-      await setConsciousness();
+      if (isResume) await step("Status Kesadaran", setConsciousness);
+      else await setConsciousness();
 
       // RESUME + DIAGNOSIS: Diagnosa + ICD dari Keluhan Utama, SEBELUM layanan
       // (Klinik Pintar memberi rekomendasi layanan dari ICD-10 yang dipilih).
@@ -4293,7 +4333,14 @@
         const vitals = assessVitals(readVitalsFromPage(), getPatientAgeFromIdentity()?.ageYears ?? null);
         dxDetected = detectDiagnosisFromComplaint(readFieldText("Keluhan Utama"), { vitals });
         const dx = dxDetected && DIAGNOSIS_TEMPLATES.find((d) => d.key === dxDetected.key);
-        if (dx) {
+        // v10.0.5: ICD yang sudah diisi dokter dihormati; tidak ditambah diagnosis lain.
+        const existingIcd = selectedIcdEntries();
+        if (existingIcd.length) {
+          dxDetected = null;
+          dxResult = null;
+          LOG(`ICD sudah terisi (${existingIcd.map((e) => e.code).join(", ")}) -> diagnosis otomatis dilewati`);
+          dxError = { existing: existingIcd };
+        } else if (dx) {
           // Gagal memilih diagnosis tidak menghentikan resume; dilaporkan di akhir.
           try {
             dxResult = await fillDiagnosis(dx);
@@ -4312,42 +4359,57 @@
       } else {
         // Resume: isi Prognosa bila kolomnya ada, selain itu dilewati.
         if (fieldRoot("dd_prognosis", "Prognosa")) {
-          await setPrognosis();
+          await step("Prognosa", setPrognosis);
         } else {
           LOG("Prognosa Resume tidak tersedia -> dilewati");
         }
       }
 
-      await addService();
-      if (!isResume) await addRecipeItems(TEMPLATE.medicines);
-      await setDischarge();
-      if (!isResume) validateAndReport();
+      if (isResume) {
+        await step("Layanan", addService);
+        await step("Status Pulang", setDischarge);
+      } else {
+        await addService();
+        await addRecipeItems(TEMPLATE.medicines);
+        await setDischarge();
+        validateAndReport();
+      }
+      const failNote = failed.length ? ` BELUM TERISI: ${failed.join("; ")}. Isi manual.` : "";
 
       if (withDiagnosis) {
         const dxLabel = (key) => DIAGNOSIS_TEMPLATES.find((d) => d.key === key)?.label || key;
         // Satu tombol lengkap: Paket Resep langsung terbuka dengan obat/tindakan
         // dari diagnosis + Keluhan Utama sudah dicentang. Input tetap menunggu dokter.
         const filledDx = dxResult ? DIAGNOSIS_TEMPLATES.find((d) => d.key === dxDetected.key) : null;
+        // Tanpa filledDx, Paket Resep memakai ICD yang terisi di halaman (bila ada).
         setTimeout(() => renderMedicationGroupPackagePicker({ diagnosis: filledDx }), 300);
-        if (dxResult) {
+        if (dxError?.existing) {
+          notify(
+            `RESUME selesai. ICD sudah terisi (${dxError.existing.map((e) => e.code).join(", ")}), jadi diagnosis otomatis tidak ditambahkan. Paket Resep dibuka.` +
+              failNote,
+            failed.length ? "warn" : "success",
+            failed.length ? 20000 : 12000,
+          );
+        } else if (dxResult) {
           notify(
             `RESUME + DIAGNOSIS selesai. Diagnosis: ${dxLabel(dxDetected.key)} (ICD ${dxResult.icdCode}), dari kata "${dxDetected.keyword}".` +
               (dxDetected.others.length
                 ? ` Juga cocok: ${dxDetected.others.map(dxLabel).join(", ")} — isi manual bila perlu.`
                 : "") +
-              " Paket Resep dibuka: periksa obat lalu INPUT RESEP.",
-            "success",
-            14000,
+              " Paket Resep dibuka: periksa obat lalu INPUT RESEP." +
+              failNote,
+            failed.length ? "warn" : "success",
+            failed.length ? 20000 : 14000,
           );
         } else if (dxError) {
           notify(
-            `RESUME selesai, tetapi diagnosis ${dxLabel(dxDetected.key)} gagal diisi: ${dxError.message}`,
+            `RESUME selesai, tetapi diagnosis ${dxLabel(dxDetected.key)} gagal diisi: ${dxError.message}` + failNote,
             "warn",
             16000,
           );
         } else {
           notify(
-            "RESUME selesai, tetapi diagnosis tidak dikenali dari Keluhan Utama. Isi Diagnosa/ICD secara manual.",
+            "RESUME selesai, tetapi diagnosis tidak dikenali dari Keluhan Utama. Isi Diagnosa/ICD secara manual." + failNote,
             "warn",
             14000,
           );
@@ -4356,11 +4418,11 @@
       }
 
       notify(
-        isResume
+        (isResume
           ? "AUTO KLINIK - RESUME selesai. Diagnosis, ICD 10, dan Resep tidak diisi. Silakan periksa sebelum Simpan."
-          : "AUTO KLINIK - ISPA DEWASA selesai. Draft sudah diisi; silakan periksa sebelum Simpan.",
-        "success",
-        9000,
+          : "AUTO KLINIK - ISPA DEWASA selesai. Draft sudah diisi; silakan periksa sebelum Simpan.") + failNote,
+        failed.length ? "warn" : "success",
+        failed.length ? 20000 : 9000,
       );
     });
   }
