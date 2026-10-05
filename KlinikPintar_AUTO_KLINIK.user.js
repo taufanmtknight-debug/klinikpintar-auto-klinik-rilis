@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Klinik Pintar - AUTO KLINIK
 // @namespace    klinikpintar-auto
-// @version      10.0.3
+// @version      10.0.4
 // @description  AUTO KLINIK untuk os.klinikpintar.id — ISPA Dewasa, Resume, Resep Manual, Paket Resep Golongan. Tidak pernah menekan Simpan otomatis.
 // @author       taufanmtknight-debug
 // @match        https://os.klinikpintar.id/*
@@ -34,7 +34,7 @@
 
   // Versi diambil dari header (GM_info) agar label launcher tidak pernah beda
   // dengan @version. Nilai cadangan WAJIB sama dengan @version (dicek oleh test).
-  const SCRIPT_VERSION_FALLBACK = "10.0.3";
+  const SCRIPT_VERSION_FALLBACK = "10.0.4";
   const VERSION =
     (typeof GM_info !== "undefined" && GM_info?.script?.version) ||
     SCRIPT_VERSION_FALLBACK;
@@ -1029,7 +1029,7 @@
     {
       label: "Batuk / pilek",
       pattern: /batuk|pilek|\bflu\b|influenza|bersin|hidung\s+(?:tersumbat|mampet|meler)|ingus|\bispa\b|common cold/,
-      adult: ["ALPARA_DEWASA", "DEXAMETHASONE_05", "VITAMIN_B_COMPLEX"], // = template ISPA Dewasa
+      adult: ["ALPARA_DEWASA", "DEXAMETHASONE_05"], // = template ISPA Dewasa
       child: ["ISPA_ANAK"],
     },
     {
@@ -1040,10 +1040,11 @@
     },
     {
       // v9.5: nyeri tenggorok biasa = paket ISPA (sesuai resep dokter di klinik:
-      // "tenggorokan nyeri" -> Dexamethasone + Vit B + Alpara), tanpa antibiotik.
+      // "tenggorokan nyeri" -> Dexamethasone + Alpara), tanpa antibiotik. v10.0.4: Vit B
+      // Complex tidak dicentang otomatis (dokter yang memilih).
       label: "Nyeri tenggorok",
       pattern: /(?:nyeri|sakit|perih|gatal)\s+(?:saat\s+)?(?:menelan|telan|tenggorok\w*)|tenggorok\w*\s+(?:sakit|nyeri|perih|gatal)|\bfaring\w*/,
-      adult: ["ALPARA_DEWASA", "DEXAMETHASONE_05", "VITAMIN_B_COMPLEX"],
+      adult: ["ALPARA_DEWASA", "DEXAMETHASONE_05"],
       child: ["ISPA_ANAK"],
     },
     {
@@ -1148,12 +1149,6 @@
       child: ["ZINC_ANAK", "ORALIT_ANAK"],
     },
     {
-      label: "Sariawan",
-      pattern: /sariawan|stomatitis|\baft[ae]\w*/,
-      adult: ["VITAMIN_B_COMPLEX"],
-      child: [],
-    },
-    {
       label: "Hipertensi",
       pattern: /hipertensi|darah\s+tinggi|tensi\s+tinggi|\bht\b|\bhtn\b/,
       adult: ["AMLODIPINE_5"],
@@ -1216,12 +1211,6 @@
       child: [],
       actions: ["IMUNISASI"],
     },
-    {
-      label: "Kesemutan / lemas",
-      pattern: /kesemutan|kebas|\bbaal\b|neuropati|lemas|lesu/,
-      adult: ["VITAMIN_B_COMPLEX"],
-      child: [],
-    },
   ];
 
   // MENU DIAGNOSIS (v9.6): hanya mengisi kolom Diagnosa dan ICD 10 (2010).
@@ -1234,9 +1223,9 @@
   // Dyspepsia, Myalgia, LBP, Dermatitis, dst.).
   const DIAGNOSIS_TEMPLATES = [
     { key: "ISPA", label: "ISPA", icd: ["J06"], query: "Acute upper respiratory infections of multiple and unspecified sites",
-      adult: ["ALPARA_DEWASA", "DEXAMETHASONE_05", "VITAMIN_B_COMPLEX"], child: ["ISPA_ANAK"] },
+      adult: ["ALPARA_DEWASA", "DEXAMETHASONE_05"], child: ["ISPA_ANAK"] },
     { key: "FARINGITIS", label: "Faringitis akut", icd: ["J02.9", "J02"], query: "acute pharyngitis",
-      adult: ["ALPARA_DEWASA", "DEXAMETHASONE_05", "VITAMIN_B_COMPLEX"], child: ["ISPA_ANAK"] },
+      adult: ["ALPARA_DEWASA", "DEXAMETHASONE_05"], child: ["ISPA_ANAK"] },
     { key: "TONSILITIS", label: "Tonsilitis akut", icd: ["J03.9", "J03"], query: "acute tonsillitis",
       adult: ["AMOXICILLIN_500_DEWASA", "DEXAMETHASONE_05"], child: ["AMOXICILLIN_500_RACIKAN_BARU"] },
     { key: "GEA", label: "GEA (Gastroenteritis akut)", icd: ["A09", "A09.9", "A09.0"], query: "gastroenteritis",
@@ -1246,7 +1235,7 @@
     { key: "FEVER", label: "Fever / Demam", icd: ["R50.9", "R50"], query: "fever",
       adult: ["PARACETAMOL_DEWASA"], child: ["PARACETAMOL_ANAK"] },
     { key: "MYALGIA", label: "Myalgia", icd: ["M79.1"], query: "myalgia",
-      adult: ["PARACETAMOL_DEWASA", "VITAMIN_B_COMPLEX"], child: ["PARACETAMOL_ANAK"] },
+      adult: ["PARACETAMOL_DEWASA"], child: ["PARACETAMOL_ANAK"] },
     { key: "LBP", label: "Low back pain (LBP)", icd: ["M54.5"], query: "low back pain",
       adult: ["DICLOFENAC_50", "DEXAMETHASONE_05"], child: ["PARACETAMOL_ANAK"] },
     { key: "CEPHALGIA", label: "Cephalgia / Sakit kepala", icd: ["R51"], query: "headache",
@@ -1300,7 +1289,7 @@
     { key: "ZOSTER", label: "Herpes zoster", icd: ["B02.9", "B02"], query: "zoster",
       adult: ["PARACETAMOL_DEWASA"], child: [] },
     { key: "STOMATITIS", label: "Stomatitis (sariawan)", icd: ["K12.0", "K12.1"], query: "stomatitis",
-      adult: ["VITAMIN_B_COMPLEX"], child: [] },
+      adult: [], child: [] },
     { key: "OA_GENU", label: "Osteoartritis lutut", icd: ["M17.9", "M17"], query: "gonarthrosis",
       adult: ["DICLOFENAC_50", "CALCIUM_500"], child: [] },
     { key: "HIPERURISEMIA", label: "Hiperurisemia", icd: ["E79.0"], query: "hyperuricaemia",
@@ -1765,9 +1754,12 @@
   // menurut `pick(daftarLi)`, lalu klik pilihan itu.
   async function msPick(root, pick, label, { typed = null, timeout = 8000 } = {}) {
     if (!root) throw new Error(`Kolom ${label} tidak ditemukan`);
-    await msOpen(root);
+    if (typed == null) await msOpen(root);
     if (typed != null) {
       const input = msInput(root);
+      try {
+        input?.focus({ preventScroll: true });
+      } catch (_) {}
       if (!input) throw new Error(`Kolom ${label} tidak bisa diketik`);
       nativeSetValue(input, "");
       await sleep(120);
@@ -2017,14 +2009,17 @@
     const modal = await waitFor(() => findDialogByTitle(/layanan/i), 7000, 150, "dialog Layanan/Tindakan");
     // v10.0.2: tidak menunggu "Sedang memeriksa List Layanan / Tindakan" (bisa lama);
     // pencarian layanan sudah bisa dipakai sejak dialog terbuka.
-    await sleep(300);
+    // v10.0.4: Nakes Pelaksana TIDAK ditunggu: Klinik Pintar mengisinya sendiri saat
+    // Simpan Layanan. Yang lama adalah Klinik Pintar menambahkan baris layanan
+    // (±5 detik setelah dipilih, di HP bisa lebih); ditunggu sampai 25 detik.
+    await sleep(150);
 
     const hasService = () =>
       msRoots(modal).some((r) => !msInput(r) && norm(msShown(r)) === norm(TEMPLATE.service));
     if (!hasService()) {
       const search = msRoots(modal).find((r) => msInput(r));
       await msPick(search, msExact(TEMPLATE.service), "Cari Layanan", { typed: "BPJS - Dokter Umum", timeout: 15000 });
-      const ok = await waitFor(() => (hasService() ? true : null), 5000, 150, "layanan").catch(() => false);
+      const ok = await waitFor(() => (hasService() ? true : null), 25000, 150, "layanan").catch(() => false);
       if (!ok) throw new Error(`Layanan ${TEMPLATE.service} belum masuk ke daftar.`);
     }
     const save = findButtonByTexts(["Simpan Layanan"], modal);
@@ -4258,47 +4253,9 @@
     return { shade, close };
   }
 
-  // ---------------- MENU DIAGNOSIS ----------------
-  function renderDiagnosisPicker() {
-    const { shade, close } = openOverlay(
-      "ak-disease-picker",
-      "ak-disease-card",
-      `${overlayHead("DIAGNOSIS", "Hanya mengisi kolom Diagnosa dan ICD 10 (2010).")}
-        <div class="ak-rp-section">
-          <div class="ak-rp-grid">
-            ${DIAGNOSIS_TEMPLATES.map((d) => `<button class="ak-rp-btn ak-rp-weight" data-dx="${d.key}" type="button"><span>${escapePreviewHtml(d.label)}</span><small>ICD-10 ${escapePreviewHtml(d.icd[0])}</small></button>`).join("")}
-          </div>
-        </div>`,
-    );
-    shade.querySelectorAll("[data-dx]").forEach((btn) =>
-      btn.addEventListener("click", () => {
-        close();
-        runDiagnosis(btn.dataset.dx);
-      }),
-    );
-  }
-
-  function runDiagnosis(key) {
-    const dx = DIAGNOSIS_TEMPLATES.find((d) => d.key === key);
-    if (!dx) return notify(`Diagnosis tidak dikenal: ${key}`, "error", 8000);
-    return runTask(`DIAGNOSIS ${dx.label}`, async () => {
-      if (!isMedicalRecordCreatePage()) {
-        throw new Error("Buka halaman Buat Rekam Medis pasien terlebih dahulu.");
-      }
-      const r = await fillDiagnosis(dx);
-      notify(
-        r.skipped
-          ? `ICD ${r.icdCode} sudah terpilih sebelumnya. Diagnosa diisi: ${dx.label}.`
-          : `DIAGNOSIS ${dx.label} terisi: ICD-10 ${r.icdCode}. Periksa sebelum Simpan.`,
-        "success",
-        9000,
-      );
-    });
-  }
-
   // ---------------- FORM REKAM MEDIS: RESUME ----------------
   // resume : salin Keluhan Utama -> Anamnesa, kesadaran, prognosa (bila ada), layanan, status pulang
-  // (mode "ispa" lama tidak lagi ada di menu; diganti menu DIAGNOSIS + PAKET RESEP)
+  // (mode "ispa" lama tidak lagi ada di menu; diganti RESUME + DIAGNOSIS + RESEP)
   function runTemplate(mode = "ispa") {
     const withDiagnosis = mode === "resume-diagnosis";
     const isResume = mode === "resume" || withDiagnosis;
@@ -4376,7 +4333,7 @@
           notify(
             `RESUME + DIAGNOSIS selesai. Diagnosis: ${dxLabel(dxDetected.key)} (ICD ${dxResult.icdCode}), dari kata "${dxDetected.keyword}".` +
               (dxDetected.others.length
-                ? ` Juga cocok: ${dxDetected.others.map(dxLabel).join(", ")} — tambahkan lewat menu DIAGNOSIS bila perlu.`
+                ? ` Juga cocok: ${dxDetected.others.map(dxLabel).join(", ")} — isi manual bila perlu.`
                 : "") +
               " Paket Resep dibuka: periksa obat lalu INPUT RESEP.",
             "success",
@@ -4390,7 +4347,7 @@
           );
         } else {
           notify(
-            "RESUME selesai, tetapi diagnosis tidak dikenali dari Keluhan Utama. Isi Diagnosa/ICD lewat menu DIAGNOSIS atau manual.",
+            "RESUME selesai, tetapi diagnosis tidak dikenali dari Keluhan Utama. Isi Diagnosa/ICD secara manual.",
             "warn",
             14000,
           );
@@ -4479,7 +4436,6 @@
   }
 
   const MAIN_MENU = [
-    { id: "auto-klinik-diagnosis", label: "🩺 DIAGNOSIS", run: () => renderDiagnosisPicker() },
     { id: "auto-klinik-resume", label: "📋 RESUME", run: () => runTemplate("resume") },
     { id: "auto-klinik-resume-dx", label: "🧪 RESUME + DIAGNOSIS + RESEP", run: () => runTemplate("resume-diagnosis") },
     { id: "auto-klinik-paket-obat", label: "💊 PAKET RESEP GOLONGAN", run: () => renderMedicationGroupPackagePicker() },
