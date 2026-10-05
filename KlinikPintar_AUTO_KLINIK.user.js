@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Klinik Pintar - AUTO KLINIK
 // @namespace    klinikpintar-auto
-// @version      9.9.0
+// @version      10.0.0
 // @description  AUTO KLINIK untuk os.klinikpintar.id — ISPA Dewasa, Resume, Resep Manual, Paket Resep Golongan. Tidak pernah menekan Simpan otomatis.
 // @author       taufanmtknight-debug
 // @match        https://os.klinikpintar.id/*
@@ -21,7 +21,7 @@
 //
 // Susunan file:
 //   1. KONFIGURASI & DATA     — master obat, template resep/racikan, Paket Golongan
-//   2. HELPER DOM             — klik, isi input, tunggu elemen (Ant Design/React)
+//   2. HELPER DOM             — klik, isi input, tunggu elemen (Vue 3 / Headless UI)
 //   3. FORM REKAM MEDIS       — kesadaran, diagnosis/ICD, layanan, status pulang
 //   4. FORM RESEP & RACIKAN   — isi obat non-racikan & racikan
 //   5. DATA PASIEN            — umur dari identitas, BB, pencarian template BB
@@ -34,7 +34,7 @@
 
   // Versi diambil dari header (GM_info) agar label launcher tidak pernah beda
   // dengan @version. Nilai cadangan WAJIB sama dengan @version (dicek oleh test).
-  const SCRIPT_VERSION_FALLBACK = "9.9.0";
+  const SCRIPT_VERSION_FALLBACK = "10.0.0";
   const VERSION =
     (typeof GM_info !== "undefined" && GM_info?.script?.version) ||
     SCRIPT_VERSION_FALLBACK;
@@ -102,9 +102,9 @@
     SPUIT_5CC: { keyword: "BPJS -- SPUIT 5 CC", target: "BPJS -- SPUIT 5 CC", unit: "pcs" },
     HANDSCOON_S: { keyword: "BPJS -- HANDSCOON S", target: "BPJS -- HANDSCOON S", unit: "pcs" },
     VITAMIN_B_COMPLEX: { keyword: "BPJS -- VITAMIN B COMPLEX", target: "BPJS -- VITAMIN B COMPLEX", unit: "tablet" },
-    GUAIFENESIN_100: { keyword: "BPJS -- GUAIFENESIN 100 MG", target: "BPJS -- GUAIFENESIN 100 MG", unit: "tablet" },
+    GUAIFENESIN_100: { keyword: "BPJS -- GUAIFENESIN 100 MG", target: "BPJS -- GUAIFENESIN 100 MG", unit: "kaplet" },
     CTM_4: { keyword: "BPJS -- CTM 4 MG", target: "BPJS -- CTM 4 MG", unit: "tablet" },
-    ALPARA: { keyword: "ALPARA", target: "ALPARA", unit: "tablet" },
+    ALPARA: { keyword: "BPJS -- ALPARA", target: "BPJS -- ALPARA", unit: "tablet" },
     AMOXICILLIN_500: { keyword: "BPJS -- AMOXICILLIN 500 MG", target: "BPJS -- AMOXICILLIN 500 MG", unit: "tablet" },
     DOMPERIDONE_10: { keyword: "BPJS -- DOMPERIDONE 10 MG", target: "BPJS -- DOMPERIDONE 10 MG", unit: "tablet" },
     DOMPERIDONE_SYRUP: {
@@ -120,7 +120,7 @@
     CEFADROXIL_500: {
       keyword: "BPJS -- CEFADROXIL MONOHYDRATE 500 MG",
       target: "BPJS -- CEFADROXIL MONOHYDRATE 500 MG",
-      unit: "tablet",
+      unit: "kapsul",
     },
     CEFADROXIL_SYRUP: {
       keyword: "BPJS -- CEFADROXIL 125 MG/5 ML SYR",
@@ -130,6 +130,18 @@
     RANITIDINE_HCL: { keyword: "BPJS -- RANITIDINE HCL", target: "BPJS -- RANITIDINE HCL", unit: "tablet" },
     AMBROXOL_30: { keyword: "BPJS -- AMBROXOL 30 MG", target: "BPJS -- AMBROXOL 30 MG", unit: "tablet" },
     IBUPROFEN_400: { keyword: "BPJS -- IBUPROFEN 400 MG", target: "BPJS -- IBUPROFEN 400 MG", unit: "tablet" },
+
+    // v10: obat standar FKTP, nama persis sudah dicocokkan dengan daftar "Cari Obat"
+    // Klinik Pintar. Obat baru yang belum dicocokkan diberi verify: true (test
+    // mencegah rilis selama masih ada).
+    // Di Klinik Pintar tertulis tanpa kekuatan ("BPJS -- BETAHISTINE MESILATE" = 6 mg).
+    BETAHISTIN_6: { keyword: "BPJS -- BETAHISTINE MESILATE", target: "BPJS -- BETAHISTINE MESILATE", unit: "tablet" },
+    OMEPRAZOLE_20: { keyword: "BPJS -- OMEPRAZOLE 20 MG", target: "BPJS -- OMEPRAZOLE 20 MG", unit: "kapsul" },
+    ASAM_MEFENAMAT_500: { keyword: "BPJS -- ASAM MEFENAMAT 500 MG", target: "BPJS -- ASAM MEFENAMAT 500 MG", unit: "tablet" },
+    METHYLPREDNISOLONE_4: { keyword: "BPJS -- METHYLPREDNISOLONE 4 MG", target: "BPJS -- METHYLPREDNISOLONE 4 MG", unit: "tablet" },
+    LORATADINE_10: { keyword: "BPJS -- LORATADINE 10 MG", target: "BPJS -- LORATADINE 10 MG", unit: "tablet" },
+    CIPROFLOXACIN_500: { keyword: "BPJS -- CIPROFLOXACIN 500 MG", target: "BPJS -- CIPROFLOXACIN 500 MG", unit: "tablet" },
+    METRONIDAZOLE_500: { keyword: "BPJS -- METRONIDAZOLE 500 MG", target: "BPJS -- METRONIDAZOLE 500 MG", unit: "tablet" },
   };
 
   // Template rekam medis ISPA DEWASA (menu PENYAKIT dan tombol ISPA di Resep Manual).
@@ -809,6 +821,62 @@
         },
       ],
     },
+    // v10: obat standar FKTP tambahan (regimen dewasa; mohon dievaluasi dokter).
+    {
+      key: "LAIN_LAIN_V10",
+      label: "Obat Lain (FKTP)",
+      items: [
+        {
+          key: "BETAHISTIN_6_DEWASA",
+          label: "Betahistin 6 mg",
+          type: "recipe-inline",
+          population: "adult",
+          medicine: { item: "BETAHISTIN_6", freq: "3", dose: "1", days: "3", total: "10", instruction: "SETELAH MAKAN" },
+        },
+        {
+          key: "OMEPRAZOLE_20_DEWASA",
+          label: "Omeprazole 20 mg",
+          type: "recipe-inline",
+          population: "adult",
+          medicine: { item: "OMEPRAZOLE_20", freq: "1", dose: "1", days: "7", total: "7", instruction: "SEBELUM MAKAN" },
+        },
+        {
+          key: "ASAM_MEFENAMAT_500_DEWASA",
+          label: "Asam Mefenamat 500 mg",
+          type: "recipe-inline",
+          population: "adult",
+          medicine: { item: "ASAM_MEFENAMAT_500", freq: "3", dose: "1", days: "3", total: "10", instruction: "SETELAH MAKAN" },
+        },
+        {
+          key: "METHYLPREDNISOLONE_4_DEWASA",
+          label: "Methylprednisolone 4 mg",
+          type: "recipe-inline",
+          population: "adult",
+          medicine: { item: "METHYLPREDNISOLONE_4", freq: "3", dose: "1", days: "3", total: "10", instruction: "SETELAH MAKAN" },
+        },
+        {
+          key: "LORATADINE_10_DEWASA",
+          label: "Loratadine 10 mg",
+          type: "recipe-inline",
+          population: "adult",
+          medicine: { item: "LORATADINE_10", freq: "1", dose: "1", days: "5", total: "5", instruction: "SETELAH MAKAN" },
+        },
+        {
+          key: "CIPROFLOXACIN_500_DEWASA",
+          label: "Ciprofloxacin 500 mg",
+          type: "recipe-inline",
+          population: "adult",
+          medicine: { item: "CIPROFLOXACIN_500", freq: "2", dose: "1", days: "5", total: "10", instruction: "SETELAH MAKAN" },
+        },
+        {
+          key: "METRONIDAZOLE_500_DEWASA",
+          label: "Metronidazole 500 mg",
+          type: "recipe-inline",
+          population: "adult",
+          medicine: { item: "METRONIDAZOLE_500", freq: "3", dose: "1", days: "5", total: "15", instruction: "SETELAH MAKAN" },
+        },
+      ],
+    },
     {
       key: "VITAMIN_SUPLEMEN",
       label: "Vitamin / Suplemen",
@@ -1025,7 +1093,7 @@
     {
       label: "Nyeri haid",
       pattern: /(?:nyeri|sakit)\s+(?:saat\s+)?(?:haid|mens\w*)|(?:haid|mens\w*)\s+(?:nyeri|sakit)|dismenore\w*|kram\s+(?:perut\s+)?(?:saat\s+)?haid/,
-      adult: ["IBUPROFEN_400"],
+      adult: ["ASAM_MEFENAMAT_500_DEWASA"],
       child: ["PARACETAMOL_ANAK"],
     },
     {
@@ -1109,6 +1177,13 @@
       adult: ["ALLOPURINOL_100"],
       child: [],
     },
+    // v10: keluhan untuk obat standar FKTP tambahan.
+    {
+      label: "Vertigo",
+      pattern: /vertigo|pusing\s+berputar|kliyengan|(?:ruangan|sekitar)\s+berputar/,
+      adult: ["BETAHISTIN_6_DEWASA"],
+      child: [],
+    },
     // v9.6: keluhan yang mengarah ke TINDAKAN (resep tindakan dicentang otomatis).
     // Hanya tindakan, tanpa obat: permintaan cek lab belum berarti perlu obat.
     // v9.7: cek lab HANYA bila tertulis "cek/periksa/tes ..." (keluhan DM, asam urat,
@@ -1176,9 +1251,9 @@
       adult: ["DICLOFENAC_50", "DEXAMETHASONE_05"], child: ["PARACETAMOL_ANAK"] },
     { key: "CEPHALGIA", label: "Cephalgia / Sakit kepala", icd: ["R51"], query: "headache",
       adult: ["PARACETAMOL_DEWASA"], child: ["PARACETAMOL_ANAK"] },
-    // Belum ada obat vertigo (mis. betahistin) di master ITEMS -> tidak ada saran obat.
+    // Betahistin 6 mg 3x1, 10 tablet (sesuai dokter klinik).
     { key: "VERTIGO", label: "Vertigo / Pusing", icd: ["R42"], query: "dizziness",
-      adult: [], child: [] },
+      adult: ["BETAHISTIN_6_DEWASA"], child: [] },
     { key: "DERMATITIS", label: "Dermatitis", icd: ["L30.9", "L30"], query: "dermatitis",
       adult: ["SALEP_RACIKAN_BARU", "CETIRIZINE_10_DEWASA"], child: ["SALEP_RACIKAN_BARU", "CETIRIZINE_RACIKAN_BARU"] },
     { key: "URTIKARIA", label: "Urtikaria / Gatal", icd: ["L50.9", "L50"], query: "urticaria",
@@ -1189,6 +1264,49 @@
       adult: ["AMLODIPINE_5"], child: [] },
     { key: "IMUNISASI", label: "Imunisasi", icd: ["Z27.9", "Z27.8", "Z23.8"], query: "need for immunization",
       adult: [], child: [], actions: ["IMUNISASI"] },
+    // v10: diagnosis tambahan yang sering di klinik (ICD-10 2010; dicek di Klinik Pintar).
+    { key: "SINUSITIS", label: "Sinusitis akut", icd: ["J01.9", "J01"], query: "acute sinusitis",
+      adult: ["AMOXICILLIN_500_DEWASA", "PARACETAMOL_DEWASA"], child: ["AMOXICILLIN_500_RACIKAN_BARU", "PARACETAMOL_ANAK"] },
+    { key: "OMA", label: "Otitis media akut", icd: ["H66.9", "H66.0", "H66"], query: "otitis media",
+      adult: ["AMOXICILLIN_500_DEWASA", "PARACETAMOL_DEWASA"], child: ["AMOXICILLIN_500_RACIKAN_BARU", "PARACETAMOL_ANAK"] },
+    { key: "RINITIS_ALERGI", label: "Rinitis alergi", icd: ["J30.4", "J30.3"], query: "allergic rhinitis",
+      adult: ["LORATADINE_10_DEWASA"], child: ["CETIRIZINE_RACIKAN_BARU"] },
+    { key: "ASMA", label: "Asma", icd: ["J45.9", "J45"], query: "asthma",
+      adult: ["METHYLPREDNISOLONE_4_DEWASA"], child: [] },
+    { key: "KONJUNGTIVITIS", label: "Konjungtivitis", icd: ["H10.9", "H10"], query: "conjunctivitis",
+      adult: [], child: [] },
+    { key: "GASTRITIS", label: "Gastritis", icd: ["K29.7", "K29"], query: "gastritis",
+      adult: ["OMEPRAZOLE_20_DEWASA", "ANTASIDA_DEWASA"], child: ["ANTASIDA_ANAK"] },
+    { key: "KONSTIPASI", label: "Konstipasi", icd: ["K59.0", "K59"], query: "constipation",
+      adult: [], child: [] },
+    { key: "NYERI_PERUT", label: "Nyeri perut / kolik", icd: ["R10.4", "R10"], query: "abdominal pain",
+      adult: [], child: [] },
+    { key: "HELMINTHIASIS", label: "Cacingan", icd: ["B82.0", "B82.9", "B83.9"], query: "helminthiasis",
+      adult: [], child: [] },
+    { key: "ISK", label: "Infeksi saluran kemih", icd: ["N39.0"], query: "urinary tract infection",
+      adult: ["CEFADROXIL_500_DEWASA", "PARACETAMOL_DEWASA"], child: ["CEFADROXIL_PUYER_ANAK", "PARACETAMOL_ANAK"] },
+    { key: "DISMENORE", label: "Dismenore", icd: ["N94.6", "N94.4", "N94.5"], query: "dysmenorrh",
+      adult: ["ASAM_MEFENAMAT_500_DEWASA"], child: ["PARACETAMOL_ANAK"] },
+    { key: "PULPITIS", label: "Pulpitis / sakit gigi", icd: ["K04.0", "K02.9"], query: "pulpitis",
+      adult: ["IBUPROFEN_400", "AMOXICILLIN_500_DEWASA"], child: ["PARACETAMOL_ANAK", "AMOXICILLIN_500_RACIKAN_BARU"] },
+    { key: "ABSES", label: "Abses / bisul", icd: ["L02.9", "L02"], query: "cutaneous abscess",
+      adult: ["CEFADROXIL_500_DEWASA", "PARACETAMOL_DEWASA"], child: ["CEFADROXIL_PUYER_ANAK", "PARACETAMOL_ANAK"] },
+    { key: "TINEA", label: "Tinea (kurap/jamur)", icd: ["B35.9", "B35.4"], query: "dermatophytosis",
+      adult: ["CETIRIZINE_10_DEWASA"], child: [] },
+    { key: "PANU", label: "Pitiriasis versikolor (panu)", icd: ["B36.0"], query: "pityriasis versicolor",
+      adult: [], child: [] },
+    { key: "VARICELLA", label: "Varisela (cacar air)", icd: ["B01.9", "B01"], query: "varicella",
+      adult: ["PARACETAMOL_DEWASA", "CETIRIZINE_10_DEWASA"], child: ["PARACETAMOL_ANAK", "CETIRIZINE_RACIKAN_BARU"] },
+    { key: "ZOSTER", label: "Herpes zoster", icd: ["B02.9", "B02"], query: "zoster",
+      adult: ["PARACETAMOL_DEWASA"], child: [] },
+    { key: "STOMATITIS", label: "Stomatitis (sariawan)", icd: ["K12.0", "K12.1"], query: "stomatitis",
+      adult: ["VITAMIN_B_COMPLEX"], child: [] },
+    { key: "OA_GENU", label: "Osteoartritis lutut", icd: ["M17.9", "M17"], query: "gonarthrosis",
+      adult: ["DICLOFENAC_50", "CALCIUM_500"], child: [] },
+    { key: "HIPERURISEMIA", label: "Hiperurisemia", icd: ["E79.0"], query: "hyperuricaemia",
+      adult: ["ALLOPURINOL_100"], child: [] },
+    { key: "DISLIPIDEMIA", label: "Dislipidemia", icd: ["E78.5", "E78.0"], query: "hyperlipidaemia",
+      adult: ["SIMVASTATIN_10"], child: [] },
   ];
 
   // RESUME + DIAGNOSIS (uji coba): diagnosis dipilih dari Keluhan Utama.
@@ -1200,17 +1318,42 @@
   const DIAGNOSIS_FROM_COMPLAINT = [
     { key: "TONSILITIS", tier: 1, pattern: /tonsil\w*|amandel/ },
     { key: "FARINGITIS", tier: 1, pattern: /faring\w*/ },
+    { key: "SINUSITIS", tier: 1, pattern: /sinusitis|\bsinus\b/ },
+    { key: "OMA", tier: 1, pattern: /(?:sakit|nyeri)\s+telinga|telinga\b[^.,;\n]{0,15}?(?:sakit|nyeri|berair|bernanah|cairan)|otitis|congek|kopok/ },
+    { key: "ASMA", tier: 1, pattern: /\basma\b|asthma|mengi|\bsesak\b/ },
+    { key: "RINITIS_ALERGI", tier: 1, pattern: /rinitis|rhinitis|alergi\s+(?:debu|dingin|cuaca)|bersin[\s-]+bersin\s+(?:tiap|setiap|saat|kalau|jika)/ },
     { key: "ISPA", tier: 1, pattern: /batuk|pilek|\bflu\b|influenza|bersin|hidung\s+(?:tersumbat|mampet|meler)|ingus|\bispa\b|common cold|tenggorok\w*\s+(?:sakit|nyeri|perih|gatal)|(?:nyeri|sakit|perih|gatal)\s+(?:saat\s+)?(?:menelan|telan|tenggorok\w*)|radang\s+tenggorok\w*/ },
+    { key: "KONJUNGTIVITIS", tier: 1, pattern: /mata\s+(?:merah|belek\w*|gatal|berair)|belekan|konjungtiv\w*|\bbelek\b/ },
     { key: "GEA", tier: 1, pattern: /diare|mencret|muntaber|(?:bab|berak|buang air besar)\s+(?:cair|encer)|gastroenteritis|\bgea\b/ },
-    { key: "DISPEPSIA", tier: 1, pattern: /\bmaa?g\b|ulu\s+hati|epigastri\w*|dispepsia|gastritis|kembung|begah|sebah|perih\s+(?:di\s+)?(?:ulu\s+hati|lambung|perut)|perut\s+perih|asam\s+lambung|\bgerd\b|mual|muntah/ },
+    { key: "HELMINTHIASIS", tier: 1, pattern: /cacing\w*|kremi/ },
+    { key: "GASTRITIS", tier: 1, pattern: /gastritis/ },
+    { key: "DISPEPSIA", tier: 1, pattern: /\bmaa?g\b|ulu\s+hati|epigastri\w*|dispepsia|gastritis|kembung|begah|sebah|perih\s+(?:di\s+)?(?:ulu\s+hati|lambung|perut)|perut\s+perih|asam\s+lambung|\bgerd\b/ },
+    { key: "KONSTIPASI", tier: 1, pattern: /sembelit|konstipasi|susah\s+(?:bab|buang\s+air\s+besar)|(?:tidak|belum)\s+bab\s+\d|bab\s+keras/ },
+    { key: "NYERI_PERUT", tier: 1, pattern: /(?:sakit|nyeri)\s+perut|perut\s+(?:sakit|nyeri|melilit|mules)|melilit|kolik/ },
+    { key: "ISK", tier: 1, pattern: /anyang|disuria|\bisk\b|infeksi\s+saluran\s+kemih|(?:nyeri|sakit|perih|panas)\s+(?:saat\s+)?(?:bak|kencing|berkemih|pipis)|(?:bak|kencing|pipis)\s+(?:perih|panas|sakit|nyeri)/ },
+    { key: "DISMENORE", tier: 1, pattern: /(?:nyeri|sakit)\s+(?:saat\s+)?(?:haid|mens\w*)|(?:haid|mens\w*)\s+(?:nyeri|sakit)|dismenore\w*/ },
+    { key: "PULPITIS", tier: 1, pattern: /(?:sakit|nyeri|ngilu)\s+gigi|gigi\s+(?:sakit|nyeri|ngilu|bengkak|berlubang|goyang)|pulpitis|gusi\s+bengkak/ },
+    { key: "ABSES", tier: 1, pattern: /bisul|abses|bernanah|furunkel|luka\b[^.;\n]{0,40}?(?:infeksi|meradang|radang|bernanah|berair|bengkak)/ },
+    { key: "VARICELLA", tier: 1, pattern: /cacar\s+air|varisela|varicella|\bcacar\b(?!\s+(?:ular|api))/ },
+    { key: "ZOSTER", tier: 1, pattern: /herpes\s+zoster|\bzoster\b|cacar\s+(?:ular|api)|dompo/ },
+    { key: "TINEA", tier: 1, pattern: /kurap|kadas|tinea|jamur|kutu\s+air|\bgatal\s+selangkangan/ },
+    { key: "PANU", tier: 1, pattern: /\bpanu\b|versikolor|versicolor/ },
+    { key: "STOMATITIS", tier: 1, pattern: /sariawan|stomatitis|\baft\w*/ },
     { key: "URTIKARIA", tier: 1, pattern: /biduran|kaligata|urtikaria|bentol|\bbidur/ },
     { key: "DERMATITIS", tier: 1, pattern: /ruam|eksim|eksema|dermatitis|gatal/ },
     { key: "IMUNISASI", tier: 1, pattern: /imunisasi|vaksin\w*|\bbcg\b|\bdpt\w*|\bpolio\b|\bopv\b|\bipv\b|\bpcv\b|campak\s+rubel\w*|\bmr\b|\bhb[\s-]?0\b/ },
+    { key: "OA_GENU", tier: 1, pattern: /(?:nyeri|sakit|ngilu)\s+(?:di\s+)?lutut|lutut\s+(?:nyeri|sakit|kaku|bengkak|ngilu)|osteoart\w*|pengapuran/ },
     { key: "LBP", tier: 1, pattern: /(?:nyeri|sakit|pegal)\s+(?:di\s+)?(?:pinggang|punggung)|low back pain|\blbp\b|encok/ },
     { key: "HT", tier: 2, pattern: /hipertensi|darah\s+tinggi|tensi\s+tinggi|\bht\b|\bhtn\b/ },
+    { key: "HIPERURISEMIA", tier: 2, pattern: /asam\s+urat\s+(?:tinggi|naik)|kontrol\s+asam\s+urat|hiperurisemi\w*/ },
+    { key: "DISLIPIDEMIA", tier: 2, pattern: /kolesterol\s+(?:tinggi|naik)|kontrol\s+kolesterol|dislipid\w*|hiperlipid\w*/ },
     { key: "DM", tier: 2, pattern: /diabetes|kencing\s+manis|gula\s+(?:darah\s+)?(?:tinggi|naik)|\bdm\b/ },
-    { key: "VERTIGO", tier: 3, pattern: /vertigo|pusing\s+berputar|kliyengan|sempoyongan|(?:ruangan|sekitar)\s+berputar/ },
+    // v10: vertigo khas (berputar) = keluhan utama, mengalahkan TD tinggi dari TTV.
+    { key: "VERTIGO", tier: 1, pattern: /vertigo|pusing\s+berputar|(?:ruangan|sekitar|kepala)\s+(?:terasa\s+)?berputar/ },
+    { key: "VERTIGO", tier: 3, pattern: /kliyengan|sempoyongan/ },
     { key: "CEPHALGIA", tier: 3, pattern: /(?:sakit|nyeri)\s+kepala|pusing|cekot|ce[fp]h?algia|migr[ae]i?n/ },
+    // v10: mual/muntah saja = keluhan penyerta; kalah dari pusing, diare, dll.
+    { key: "DISPEPSIA", tier: 3, pattern: /mual|muntah/ },
     { key: "MYALGIA", tier: 3, pattern: /pegal|pegel|linu|(?:nyeri|sakit)\s+(?:otot|badan)|m[iy]algia/ },
     { key: "FEVER", tier: 4, pattern: /demam|febris|meriang|sumeng|(?:badan|suhu)\s+(?:terasa\s+)?panas|panas\s+(?:badan|tinggi|naik|sejak|\d)/ },
   ];
@@ -1224,6 +1367,7 @@
     if (!lower.trim() && !vit?.fever && !vit?.hypertension) return null;
     const found = [];
     for (const d of DIAGNOSIS_FROM_COMPLAINT) {
+      if (found.some((f) => f.key === d.key)) continue; // kata lemah untuk diagnosis yang sudah cocok
       const re = new RegExp(d.pattern.source, "g");
       let m;
       while ((m = re.exec(lower))) {
@@ -1268,7 +1412,7 @@
   ];
 
   // ============================================================
-  // 2. HELPER DOM — klik, isi input, tunggu elemen (Ant Design/React)
+  // 2. HELPER DOM — klik, isi input, tunggu elemen (Vue 3 / Headless UI)
   // ============================================================
 
   const LOG = (...args) => console.log("[AUTO KLINIK]", ...args);
@@ -1296,7 +1440,7 @@
   }
 
   // Desktop Chrome compatibility: focus the real control before synthetic events.
-  // This helps Ant Design/React controls receive the same active-element state
+  // This helps Vue controls receive the same active-element state
   // as a normal user click in Violentmonkey.
   function focusForDesktop(el) {
     try {
@@ -1353,54 +1497,7 @@
     return false;
   }
 
-  function clickCenter(el) {
-    if (!el) return false;
-    try {
-      const r = el.getBoundingClientRect();
-      const doc = el.ownerDocument || document;
-      const win = doc.defaultView || window;
-      const MouseCtor = win.MouseEvent || window.MouseEvent;
-      if (!r.width || !r.height || typeof MouseCtor !== "function")
-        return click(el);
 
-      for (const type of ["mousedown", "mouseup", "click"]) {
-        el.dispatchEvent(
-          new MouseCtor(type, {
-            bubbles: true,
-            cancelable: true,
-            composed: true,
-            clientX: r.left + r.width / 2,
-            clientY: r.top + r.height / 2,
-          }),
-        );
-      }
-      return true;
-    } catch (_) {
-      return click(el);
-    }
-  }
-
-  function keypress(el, key, code, keyCode) {
-    if (!el) return;
-    try {
-      const doc = el.ownerDocument || document;
-      const win = doc.defaultView || window;
-      const KeyCtor = win.KeyboardEvent || window.KeyboardEvent;
-      for (const type of ["keydown", "keypress", "keyup"]) {
-        el.dispatchEvent(
-          new KeyCtor(type, {
-            key,
-            code,
-            keyCode,
-            which: keyCode,
-            bubbles: true,
-            cancelable: true,
-            composed: true,
-          }),
-        );
-      }
-    } catch (_) {}
-  }
 
   function getEditableInput(el) {
     if (!el) return null;
@@ -1408,13 +1505,13 @@
     // Only INPUT/TEXTAREA are safe targets for the native value setter.
     if (el.tagName === "INPUT" || el.tagName === "TEXTAREA") return el;
 
-    // Ant Design wrappers such as .ant-select may contain the real input.
+    // Pembungkus pilihan (vueform) bisa memuat input yang sebenarnya.
     const nested = el.querySelector?.('input:not([type="hidden"]), textarea');
     if (nested && visible(nested)) return nested;
 
     // Sometimes the element is the wrapper whose parent/child contains the input.
     const parentInput = el
-      .closest?.('.ant-select, [role="combobox"]')
+      .closest?.('[multiple][tabindex], [role="combobox"]')
       ?.querySelector?.('input:not([type="hidden"])');
     if (parentInput && visible(parentInput)) return parentInput;
 
@@ -1440,7 +1537,7 @@
       desc.set.call(input, value);
     }
 
-    // React listens to input/change events from the real input element.
+    // Vue (v-model) mendengarkan event input/change dari input yang sebenarnya.
     input.dispatchEvent(new Event("input", { bubbles: true }));
     input.dispatchEvent(new Event("change", { bubbles: true }));
     return input;
@@ -1474,7 +1571,7 @@
   function findInputByPlaceholder(parts) {
     const needles = parts.map(norm);
 
-    // Direct DOM query first; Ant Design frequently renders inputs in portals.
+    // Cari langsung di seluruh DOM (dialog Headless UI dirender sebagai portal).
     const candidates = [
       ...document.querySelectorAll('input:not([type="hidden"]), textarea'),
     ].filter(visible);
@@ -1497,7 +1594,7 @@
       if (byFor)
         return (
           byFor.closest(
-            '.ant-select, [role="combobox"], input, textarea, button',
+            '[multiple][tabindex], [role="combobox"], input, textarea, button',
           ) || byFor
         );
     }
@@ -1509,7 +1606,7 @@
       let p = l;
       for (let i = 0; i < 5 && p; i++, p = p.parentElement) {
         const c = p.querySelector(
-          'input, textarea, [role="combobox"], .ant-select, button',
+          '[multiple][tabindex], input, textarea, [role="combobox"], button',
         );
         if (c && visible(c)) return c;
       }
@@ -1519,40 +1616,15 @@
 
   function candidateClickables(root = document) {
     return all(
-      'button, [role="button"], [role="option"], [aria-selected], .ant-select-selector, .ant-dropdown-menu-item, .ant-select-item, div[tabindex="0"]',
+      'button, [role="button"], [role="option"], [aria-selected], li, div[tabindex="0"]',
       root,
     );
   }
 
   function visiblePortals() {
-    return all(
-      '.ant-select-dropdown, .ant-dropdown, .ant-modal-root, [role="listbox"], [role="dialog"]',
-    );
+    return all('[role="dialog"], [role="listbox"]');
   }
 
-  function findOptionAcrossPortals(matchers, exact = false) {
-    const roots = [document, ...visiblePortals()];
-    const wanted = matchers.map(norm).filter(Boolean);
-
-    for (const root of roots) {
-      const nodes = all(
-        '[role="option"], .ant-select-item-option, .ant-dropdown-menu-item, li, button, [role="button"], div, span',
-        root,
-      );
-      for (const n of nodes) {
-        const t = norm(text(n));
-        if (!t) continue;
-        if (
-          exact
-            ? wanted.some((w) => t === w)
-            : wanted.some((w) => t.includes(w))
-        ) {
-          return n;
-        }
-      }
-    }
-    return null;
-  }
 
   function findExactTextClick(textWanted, root = document) {
     const w = norm(textWanted);
@@ -1590,72 +1662,221 @@
     return null;
   }
 
-  async function chooseFromDropdown(
-    fieldOrControl,
-    optionText,
-    mode = "exact",
-  ) {
-    click(fieldOrControl);
-    await sleep(300);
-    const opt = await waitFor(
-      () => findOptionAcrossPortals([optionText], mode !== "contains"),
-      7000,
-      120,
-      `opsi ${optionText}`,
-    );
-    click(opt);
-    await sleep(350);
-    return true;
-  }
 
   // ============================================================
   // 3. FORM REKAM MEDIS — kesadaran, diagnosis/ICD, layanan, status pulang
   // ============================================================
 
-  async function setConsciousness() {
-    const control = nearbyControlFromLabel("Status Kesadaran");
-    if (!control) throw new Error("Kolom Status Kesadaran tidak ditemukan");
-    await chooseFromDropdown(control, TEMPLATE.consciousness, "exact");
-    LOG("Status kesadaran OK");
+  // ---------------- PILIHAN VUEFORM (v10) ----------------
+  // Klinik Pintar sekarang memakai Vue 3 + @vueform/multiselect, bukan Ant Design.
+  // Itu penyebab galat lama seperti "Timeout menunggu opsi ..." dan
+  // "Pilihan diagnosis ... tidak ditemukan". Struktur satu kolom pilihan:
+  //   div[multiple][tabindex]           akar (mis. #dd_prognosis, #dd_icd_10)
+  //     > input                         kolom cari (hanya pilihan yang bisa dicari)
+  //     > div                           placeholder ATAU label terpilih
+  //     > div[tabindex="-1"] > ul > li  daftar pilihan (kelas "hidden" saat tertutup)
+  // Membuka = fokus ke input/akar; memilih = klik <li>. Tidak pernah memakai Enter
+  // (pilihan yang tersorot = posisi mouse, bisa obat/kode lain).
+  const MS_ROOT = "[multiple][tabindex]";
+
+  function msRoots(scope = document) {
+    return [...(scope?.querySelectorAll?.(MS_ROOT) || [])].filter((r) => visible(r) && !isOwnUi(r));
   }
 
-  function visibleSelectDropdowns() {
-    return [
-      ...document.querySelectorAll(
-        '.ant-select-dropdown, .ant-dropdown, [role="listbox"]',
-      ),
-    ].filter(visible);
+  function msInput(root) {
+    return root?.querySelector?.(":scope > input") || null;
   }
 
-  function findExactDiagnosisJ06Option() {
-    const target = norm(TEMPLATE.diagnosisShort);
-    for (const root of visibleSelectDropdowns()) {
-      const options = [
-        ...root.querySelectorAll(
-          '[role="option"], .ant-select-item-option, .ant-select-item, li',
-        ),
-      ].filter(visible);
+  function msBox(root) {
+    return root?.querySelector?.(':scope > div[tabindex="-1"]') || null;
+  }
 
-      for (const opt of options) {
-        const t = norm(text(opt));
-        if (
-          t.startsWith("j06 ") &&
-          t.includes(target) &&
-          !/^j06\.(0|8|9)\b/.test(t)
-        ) {
-          return opt;
-        }
+  function msIsOpen(root) {
+    const box = msBox(root);
+    return !!box && !box.classList.contains("hidden") && visible(box);
+  }
+
+  function msOptions(root) {
+    const box = msBox(root);
+    return box ? [...box.querySelectorAll("li")].filter(visible) : [];
+  }
+
+  // Teks semua pilihan, juga saat daftar tertutup (untuk mengenali jenis kolom).
+  function msOptionTexts(root) {
+    const box = msBox(root);
+    return box ? [...box.querySelectorAll("li")].map((li) => norm(li.textContent)) : [];
+  }
+
+  // Label terpilih, atau placeholder bila belum ada yang dipilih.
+  function msShown(root) {
+    if (!root) return "";
+    const box = msBox(root);
+    return [...root.children]
+      .filter((c) => c !== box && !/^(input|svg)$/i.test(c.tagName))
+      .map(text)
+      .filter(Boolean)
+      .join(" ");
+  }
+
+  function msClose() {
+    try {
+      document.activeElement?.blur?.();
+    } catch (_) {}
+  }
+
+  async function msOpen(root) {
+    if (msIsOpen(root)) return true;
+    try {
+      (msInput(root) || root).focus({ preventScroll: true });
+    } catch (_) {}
+    const opened = () => (msIsOpen(root) ? true : null);
+    if (await waitFor(opened, 700, 50, "daftar pilihan").catch(() => false)) return true;
+    // Cadangan: vueform juga membuka daftar lewat mousedown pada akar.
+    try {
+      root.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true }));
+    } catch (_) {}
+    return waitFor(opened, 1500, 50, "daftar pilihan").catch(() => false);
+  }
+
+  const msExact = (wanted) => (opts) => opts.find((o) => norm(text(o)) === norm(wanted)) || null;
+
+  // Buka kolom pilihan, (opsional) ketik kata kunci, tunggu pilihan yang cocok
+  // menurut `pick(daftarLi)`, lalu klik pilihan itu.
+  async function msPick(root, pick, label, { typed = null, timeout = 8000 } = {}) {
+    if (!root) throw new Error(`Kolom ${label} tidak ditemukan`);
+    await msOpen(root);
+    if (typed != null) {
+      const input = msInput(root);
+      if (!input) throw new Error(`Kolom ${label} tidak bisa diketik`);
+      nativeSetValue(input, "");
+      await sleep(120);
+      nativeSetValue(input, String(typed));
+      await sleep(350); // hasil pencarian sebelumnya masih tampil sesaat
+    }
+    const option = await waitFor(
+      () => {
+        const opts = msOptions(root);
+        return opts.length ? pick(opts) : null;
+      },
+      timeout,
+      120,
+      `pilihan ${label}`,
+    ).catch(() => null);
+    if (!option) {
+      const seen = msOptions(root)
+        .slice(0, 5)
+        .map((o) => text(o).slice(0, 60));
+      msClose();
+      throw new Error(
+        `${label}: pilihan tidak ditemukan.` +
+          (seen.length ? ` Yang muncul: ${seen.join(" | ")}` : " Daftar pilihan kosong."),
+      );
+    }
+    click(option);
+    await sleep(250);
+    return option;
+  }
+
+  // Pilih nilai persis (huruf besar/kecil diabaikan) lalu pastikan labelnya tampil.
+  async function msChoose(root, value, label) {
+    if (!root) throw new Error(`Kolom ${label} tidak ditemukan`);
+    if (norm(msShown(root)) === norm(value)) return false;
+    await msPick(root, msExact(value), label);
+    const ok = await waitFor(
+      () => (norm(msShown(root)) === norm(value) ? true : null),
+      2500,
+      100,
+      label,
+    ).catch(() => false);
+    msClose();
+    if (!ok) throw new Error(`${label} belum terpilih: ${value}`);
+    return true;
+  }
+
+  // Kolom pilihan PERTAMA sesudah label `labelText` (mis. "Status Kesadaran").
+  function msRootByLabel(labelText, scope = document) {
+    const want = norm(labelText);
+    const labels = [...scope.querySelectorAll("label, dt, span, p, div")].filter(
+      (el) =>
+        el.children.length <= 2 &&
+        visible(el) &&
+        !isOwnUi(el) &&
+        norm(text(el)).replace(/\s*\*$/, "").trim() === want,
+    );
+    for (const l of labels) {
+      for (let p = l.parentElement, i = 0; p && i < 5; p = p.parentElement, i++) {
+        const after = msRoots(p).filter(
+          (r) => l.compareDocumentPosition(r) & Node.DOCUMENT_POSITION_FOLLOWING,
+        );
+        if (after.length) return after[0];
       }
     }
     return null;
   }
 
-  // Opsi J06 di dropdown ICD sama persis dengan dropdown Diagnosa.
-  function findExactIcdJ06Option() {
-    return findExactDiagnosisJ06Option();
+  function fieldRoot(id, label) {
+    const byId = document.getElementById(id);
+    if (byId && byId.matches?.(MS_ROOT) && visible(byId)) return byId;
+    return msRootByLabel(label);
   }
 
-  // ---------------- MENU DIAGNOSIS (v9.6) ----------------
+  // Dialog Headless UI terlihat yang judulnya (h3) cocok `re`; yang paling atas.
+  function findDialogByTitle(re) {
+    return (
+      [...document.querySelectorAll('[role="dialog"]')]
+        .filter((d) => visible(d) && !isOwnUi(d))
+        .filter((d) => re.test(text(d.querySelector("h3, [id^='headlessui-dialog-title']"))))
+        .pop() || null
+    );
+  }
+
+  // Klinik Pintar memuat isi dialog belakangan ("Sedang Memeriksa List Obat & Resep",
+  // bisa lebih dari 20 detik). Baris obat yang sudah ada baru tampil sesudahnya.
+  function dialogLoading(modal) {
+    return [...(modal?.querySelectorAll("p, span, div") || [])].some(
+      (el) => el.children.length === 0 && /^sedang memeriksa list/i.test(text(el)) && visible(el),
+    );
+  }
+
+  async function waitDialogReady(modal, what, timeout = 60000) {
+    if (!dialogLoading(modal)) return true;
+    LOG(`Menunggu Klinik Pintar memuat ${what}...`);
+    return waitFor(
+      () => (!modal.isConnected || !dialogLoading(modal) ? true : null),
+      timeout,
+      300,
+      what,
+    )
+      .then(() => true)
+      .catch(() => false);
+  }
+
+  // Kolom teks (Keluhan Utama, Anamnesa, Diagnosa) berdasarkan id, lalu label.
+  function textFieldByIdOrLabel(id, label, placeholders = []) {
+    const byId = document.getElementById(id);
+    if (byId && visible(byId)) return byId;
+    return (
+      getEditableInput(nearbyControlFromLabel(label)) ||
+      findInputByPlaceholder(placeholders.length ? placeholders : [label])
+    );
+  }
+
+  async function setConsciousness() {
+    await msChoose(msRootByLabel("Status Kesadaran"), TEMPLATE.consciousness, "Status Kesadaran");
+    LOG("Status kesadaran OK");
+  }
+
+  async function setPrognosis() {
+    await msChoose(fieldRoot("dd_prognosis", "Prognosa"), TEMPLATE.prognosis, "Prognosa");
+    LOG("Prognosa OK");
+  }
+
+  async function setDischarge() {
+    await msChoose(fieldRoot("dd_status", "Status Pulang"), TEMPLATE.discharge, "Status Pulang");
+    LOG("Status pulang OK");
+  }
+
+  // ---------------- DIAGNOSIS + ICD 10 ----------------
   // Pilihan ICD tampil sebagai "J06  Acute upper ... (Spesialis)". Kode diambil
   // dari awal teks pilihan, lalu dicocokkan PERSIS (J06 ≠ J06.0 / J06.8 / J06.9).
   function optionIcdCode(opt) {
@@ -1663,208 +1884,83 @@
     return m ? m[1].toUpperCase() : "";
   }
 
-  function visibleIcdOptions() {
-    return visibleSelectDropdowns()
-      .flatMap((root) => [...root.querySelectorAll('[role="option"], .ant-select-item-option, .ant-select-item, li')])
-      .filter((o) => visible(o) && !isOwnUi(o) && optionIcdCode(o));
+  // ICD terpilih tampil sebagai kartu "J06 Primer <nama>" (#txt_icd_10_code_N).
+  function selectedIcdEntries() {
+    return [...document.querySelectorAll('[id^="txt_icd_10_code_"]')]
+      .filter((el) => !isOwnUi(el))
+      .map((el) => {
+        const n = el.id.replace("txt_icd_10_code_", "");
+        const code = (norm(text(el)).match(/^([a-z]\d{2}(?:\.\d{1,2})?)/) || [])[1] || "";
+        const name = text(document.getElementById(`txt_icd_10_english_name_${n}`))
+          .replace(/\s*\((?:non\s+)?spesialis\)\s*$/i, "")
+          .trim();
+        return { code: code.toUpperCase(), name };
+      });
   }
 
-  function findIcdOption(codes) {
-    const opts = visibleIcdOptions();
-    for (const code of codes) {
-      const hit = opts.find((o) => optionIcdCode(o) === code.toUpperCase());
-      if (hit) return hit;
-    }
-    return null;
-  }
-
-  // Kotak hasil pilihan ICD di bawah kolom ("J06 Primer Acute upper ...").
   function icdAlreadySelected(code) {
-    const wanted = code.toLowerCase();
-    return [...document.querySelectorAll("div, li, tr")].some((el) => {
-      if (!visible(el) || isOwnUi(el) || el.closest(DROPDOWN_SCOPE)) return false;
+    const wanted = code.toUpperCase();
+    if (selectedIcdEntries().some((e) => e.code === wanted)) return true;
+    // Cadangan bila kartu tanpa id: teks "J06 Primer ..." di luar daftar pilihan.
+    const lower = wanted.toLowerCase();
+    return [...document.querySelectorAll("#sec_assessment div, #sec_assessment li")].some((el) => {
+      if (!visible(el) || isOwnUi(el) || el.closest(MS_ROOT)) return false;
       const t = norm(text(el));
-      return t.length < 400 && t.startsWith(wanted + " ") && /\b(?:primer|sekunder)\b/.test(t);
+      return t.length < 400 && t.startsWith(lower + " ") && /\b(?:primer|sekunder)\b/.test(t);
     });
   }
 
-  // Ketik teks, tunggu pilihan dengan kode yang diminta, lalu klik.
-  // Tidak pernah memakai ArrowDown+Enter (bisa memilih J06.0 untuk J06).
-  async function typeAndPickIcdOption(input, typed, codes, fieldName) {
-    try {
-      input.focus();
-    } catch (_) {}
-    nativeSetValue(input, "");
-    await sleep(120);
-    nativeSetValue(input, typed);
-    const opt = await waitFor(() => findIcdOption(codes), 6000, 150, `pilihan ${codes.join("/")} di ${fieldName}`).catch(() => null);
-    if (!opt) {
-      const seen = visibleIcdOptions().slice(0, 6).map((o) => text(o).slice(0, 60));
-      throw new Error(
-        `${fieldName}: kode ${codes.join(" / ")} tidak ada di daftar.` +
-          (seen.length ? ` Yang muncul: ${seen.join(" | ")}` : " Daftar pilihan tidak muncul."),
-      );
-    }
-    const code = optionIcdCode(opt);
-    const content = opt.querySelector(".ant-select-item-option-content") || opt;
-    clickCenter(content);
-    for (let i = 0; i < 2 && findIcdOption([code]); i++) {
-      await sleep(500);
-      const again = findIcdOption([code]);
-      if (!again) break;
-      dispatchOptionSelection(again);
-    }
-    await sleep(500);
-    return code;
-  }
-
+  // Pilih kode ICD dx (urut prioritas) di kolom ICD 10 (2010), lalu tulis nama
+  // diagnosisnya di kolom Diagnosa (teks biasa; ditambahkan bila sudah ada isi lain).
   async function fillDiagnosis(dx) {
-    // 1) Kolom Diagnosa
-    const diag =
-      findInputByPlaceholder(["Masukkan diagnosa"]) ||
-      getEditableInput(nearbyControlFromLabel("Diagnosa"));
-    if (!diag) throw new Error("Kolom Diagnosa tidak ditemukan");
-    let diagCode = null;
-    try {
-      diagCode = await typeAndPickIcdOption(diag, dx.query, dx.icd, "Diagnosa");
-    } catch (e) {
-      // Kolom Diagnosa kadang tanpa daftar pilihan: teks tetap terisi.
-      if (!/tidak muncul/.test(e.message)) throw e;
-      LOG("Diagnosa: daftar pilihan tidak muncul, teks diagnosis diisi langsung.");
+    const codes = dx.icd.map((c) => c.toUpperCase());
+    let icdCode = codes.find(icdAlreadySelected) || null;
+    const skipped = !!icdCode;
+    if (!skipped) {
+      const root = fieldRoot("dd_icd_10", "ICD 10 (2010)");
+      if (!root) throw new Error("Kolom ICD 10 (2010) tidak ditemukan");
+      const errors = [];
+      for (const code of codes) {
+        try {
+          await msPick(root, (opts) => opts.find((o) => optionIcdCode(o) === code) || null, `ICD 10 ${code}`, {
+            typed: code,
+            timeout: 6000,
+          });
+        } catch (e) {
+          errors.push(e.message);
+          continue;
+        }
+        const ok = await waitFor(() => (icdAlreadySelected(code) ? true : null), 4000, 150, `ICD ${code}`).catch(
+          () => false,
+        );
+        if (ok) {
+          icdCode = code;
+          break;
+        }
+        errors.push(`ICD ${code} sudah diklik tetapi belum tampil sebagai terpilih.`);
+      }
+      msClose();
+      if (!icdCode) throw new Error(errors.join(" "));
     }
 
-    // 2) Kolom ICD 10 (2010)
-    if (dx.icd.some(icdAlreadySelected)) {
-      LOG(`ICD ${dx.icd.join("/")} sudah terpilih -> dilewati`);
-      return { diagCode, icdCode: dx.icd.find(icdAlreadySelected), skipped: true };
-    }
-    const icd =
-      findInputByPlaceholder(["Masukan kode atau diagnosa/penyakit", "Masukkan kode atau diagnosa/penyakit"]) ||
-      getEditableInput(nearbyControlFromLabel("ICD 10 (2010)"));
-    if (!icd) throw new Error("Kolom ICD 10 (2010) tidak ditemukan");
-    // Ketik kode yang sudah pasti (dari pilihan Diagnosa) bila ada.
-    const codes = diagCode ? [diagCode, ...dx.icd.filter((c) => c !== diagCode)] : dx.icd;
-    const icdCode = await typeAndPickIcdOption(icd, codes[0], codes, "ICD 10");
-    const ok = await waitFor(() => icdAlreadySelected(icdCode), 3000, 150, "ICD terpilih").catch(() => false);
-    if (!ok && findIcdOption([icdCode])) throw new Error(`ICD ${icdCode} belum berhasil dipilih.`);
-    return { diagCode, icdCode, skipped: false };
-  }
-
-
-  async function selectDiagnosisJ06Exact() {
-    const diag =
-      findInputByPlaceholder(["Masukkan diagnosa"]) ||
-      getEditableInput(nearbyControlFromLabel("Diagnosa"));
-
-    if (!diag) throw new Error("Kolom Diagnosa tidak ditemukan");
-
-    try {
-      diag.focus();
-    } catch (_) {}
-    nativeSetValue(diag, TEMPLATE.diagnosisShort);
-    await sleep(850);
-
-    let opt = findExactDiagnosisJ06Option();
-
-    if (opt) {
-      clickCenter(opt.querySelector(".ant-select-item-option-content") || opt);
-      await sleep(600);
-    }
-
-    // Fallback: keyboard selects the first matching autocomplete result.
-    if (findExactDiagnosisJ06Option()) {
-      try {
-        diag.focus();
-      } catch (_) {}
-      keypress(diag, "ArrowDown", "ArrowDown", 40);
-      await sleep(120);
-      keypress(diag, "Enter", "Enter", 13);
-      await sleep(650);
-    }
-
-    if (findExactDiagnosisJ06Option()) {
-      opt = findExactDiagnosisJ06Option();
-      clickCenter(opt.querySelector(".ant-select-item-option-content") || opt);
-      await sleep(600);
-    }
-
-    const val = norm(diag.value || "");
-    const box =
-      diag.closest('.ant-form-item, [class*="form-item"]') ||
-      diag.parentElement;
-    const boxText = norm(text(box));
-    if (
-      !val.includes(norm(TEMPLATE.diagnosisShort)) &&
-      !boxText.includes(norm(TEMPLATE.diagnosisShort))
-    ) {
-      // This field can remain as the same text after an accepted autocomplete choice.
-      // The absence of the dropdown is the strongest confirmation available from the UI.
-      if (findExactDiagnosisJ06Option()) {
-        throw new Error("Diagnosis J06 belum dipilih.");
+    const name = selectedIcdEntries().find((e) => e.code === icdCode)?.name || dx.query;
+    const diag = textFieldByIdOrLabel("tf_diagnosis", "Diagnosa", ["Masukkan diagnosa"]);
+    let diagnosisText = "";
+    if (diag && name) {
+      const current = String(diag.value || "").trim();
+      diagnosisText = current;
+      if (!norm(current).includes(norm(name))) {
+        diagnosisText = current ? `${current}, ${name}` : name;
+        nativeSetValue(diag, diagnosisText);
       }
     }
-
-    LOG("Diagnosis J06 berhasil dipilih");
+    return { diagCode: null, icdCode, skipped, diagnosisText };
   }
 
-  async function selectIcdJ06Exact() {
-    let icd = findInputByPlaceholder([
-      "Masukan kode atau diagnosa/penyakit",
-      "Masukkan kode atau diagnosa/penyakit",
-    ]);
-
-    if (!icd) icd = getEditableInput(nearbyControlFromLabel("ICD 10 (2010)"));
-    if (!icd) throw new Error("Input ICD 10 (2010) tidak ditemukan");
-
-    try {
-      icd.focus();
-    } catch (_) {}
-    nativeSetValue(icd, TEMPLATE.icd10);
-    await sleep(900);
-
-    let opt = findExactIcdJ06Option();
-
-    if (opt) {
-      // Click the actual option content, not the outer dropdown wrapper.
-      clickCenter(opt.querySelector(".ant-select-item-option-content") || opt);
-      await sleep(700);
-    }
-
-    // Fallback using keyboard navigation on the actual ICD input.
-    if (findExactIcdJ06Option()) {
-      try {
-        icd.focus();
-      } catch (_) {}
-      keypress(icd, "ArrowDown", "ArrowDown", 40);
-      await sleep(120);
-      keypress(icd, "Enter", "Enter", 13);
-      await sleep(750);
-    }
-
-    // Final click fallback.
-    opt = findExactIcdJ06Option();
-    if (opt) {
-      clickCenter(opt.querySelector(".ant-select-item-option-content") || opt);
-      await sleep(700);
-    }
-
-    // Verify the exact dropdown option has disappeared; that indicates the option was accepted.
-    if (findExactIcdJ06Option()) {
-      throw new Error("Opsi ICD J06 masih terbuka; belum berhasil dipilih.");
-    }
-
-    LOG("ICD J06 berhasil dipilih");
-  }
-
+  // Template ISPA lama (tidak ada di menu; dipertahankan untuk runTemplate("ispa")).
   async function setDiagnosisAndIcd() {
-    await selectDiagnosisJ06Exact();
-
-    const prog = nearbyControlFromLabel("Prognosa");
-    if (!prog) throw new Error("Kolom Prognosa tidak ditemukan");
-    await chooseFromDropdown(prog, TEMPLATE.prognosis, "exact");
-    LOG("Prognosa OK");
-
-    await selectIcdJ06Exact();
+    await fillDiagnosis(DIAGNOSIS_TEMPLATES.find((d) => d.key === "ISPA"));
+    await setPrognosis();
   }
 
   function findButtonByTexts(texts, root = document) {
@@ -1876,171 +1972,87 @@
     return null;
   }
 
+  // Layanan: dialog "Tambah Layanan/Tindakan" -> Cari Layanan -> pilih
+  // "BPJS - Dokter Umum Jasa Konsultasi" -> Simpan Layanan (hanya menyimpan isian
+  // dialog ke form; rekam medis tetap disimpan dokter dengan tombol Simpan utama).
   async function addService() {
-    // v9.5: bila layanan sudah ada (tombol berubah jadi "Ubah Layanan/Tindakan"
-    // dan kartu layanan tampil), jangan buka modal lagi. Dulu proses berhenti
-    // karena tombol "Tambah Layanan/Tindakan" tidak ditemukan.
-    const editBtn = findButtonByTexts(["Ubah Layanan/Tindakan", "Ubah Layanan / Tindakan"]);
-    const pageText = norm(
-      [...(document.body?.children || [])].filter((el) => !isOwnUi(el)).map(text).join(" "),
-    );
-    if (editBtn && pageText.includes(norm(TEMPLATE.service))) {
+    const section = document.getElementById("sec_plan_service");
+    if (section && norm(text(section)).includes(norm(TEMPLATE.service))) {
       LOG("Layanan sudah ada -> dilewati");
       return;
     }
     const btn =
-      findButtonByTexts(["Tambah Layanan/Tindakan", "Tambah Layanan / Tindakan"]) || editBtn;
-    if (!btn) throw new Error("Tombol Tambah/Ubah Layanan/Tindakan tidak ditemukan");
+      document.getElementById("rekam-medis_resume_rme_tambah-layanan_click") ||
+      findButtonByTexts([
+        "Tambah Layanan/Tindakan",
+        "Ubah Layanan/Tindakan",
+        "Tambah Layanan / Tindakan",
+        "Ubah Layanan / Tindakan",
+      ]);
+    if (!btn || !visible(btn)) throw new Error("Tombol Tambah/Ubah Layanan/Tindakan tidak ditemukan");
     click(btn);
-    const modal = await waitFor(
-      () => {
-        const ms = all('[role="dialog"], .ant-modal, [class*="modal"]');
-        return (
-          ms.find(
-            (m) =>
-              norm(text(m)).includes("ubah layanan/tindakan") ||
-              norm(text(m)).includes("rekomendasi layanan"),
-          ) || ms.find((m) => visible(m))
-        );
-      },
-      7000,
-      150,
-      "modal layanan",
-    );
-    await sleep(350);
+    const modal = await waitFor(() => findDialogByTitle(/layanan/i), 7000, 150, "dialog Layanan/Tindakan");
+    await waitDialogReady(modal, "daftar layanan", 20000);
 
-    // The screenshot shows the recommended service already inserted in the modal.
-    // If it is not present, select it manually.
-    const serviceRow =
-      findContainsTextClick(TEMPLATE.service, modal) ||
-      findContainsTextClick("Dokter Umum Jasa Konsultasi", modal);
-    if (!serviceRow) {
-      // "Cari Layanan" adalah pilihan Ant Select (teks placeholder, bukan atribut
-      // placeholder input). v9.5: dulu bisa mengetik ke kolom pertama di modal
-      // (mis. kolom Jumlah) bila placeholder tidak ditemukan.
-      let search = all("input", modal).find((i) => norm(i.placeholder).includes("cari layanan"));
-      if (!search) {
-        const ph = findExactTextClick("Cari Layanan", modal);
-        const control = ph?.closest?.(".ant-select") || ph;
-        if (control) {
-          dispatchPointerClick(control);
-          await sleep(250);
-          search = getEditableInput(control);
-        }
-      }
-      if (!search) throw new Error("Kolom Cari Layanan tidak ditemukan");
-      nativeSetValue(search, "Dokter Umum Jasa Konsultasi");
-      await sleep(500);
-      const opt = await waitFor(
-        () =>
-          findExactTargetOption(TEMPLATE.service) ||
-          findContainsTextClick(TEMPLATE.service, modal),
-        6000,
-        150,
-        "layanan dokter umum",
-      );
-      dispatchOptionSelection(opt);
-      await sleep(400);
+    const hasService = () =>
+      msRoots(modal).some((r) => !msInput(r) && norm(msShown(r)) === norm(TEMPLATE.service));
+    if (!hasService()) {
+      const search = msRoots(modal).find((r) => msInput(r));
+      await msPick(search, msExact(TEMPLATE.service), "Cari Layanan", { typed: "Dokter Umum Jasa Konsultasi" });
+      const ok = await waitFor(() => (hasService() ? true : null), 5000, 150, "layanan").catch(() => false);
+      if (!ok) throw new Error(`Layanan ${TEMPLATE.service} belum masuk ke daftar.`);
     }
-    const save = findButtonByTexts(["Simpan Layanan", "Simpan"], modal);
+    const save = findButtonByTexts(["Simpan Layanan"], modal);
     if (!save) throw new Error("Tombol Simpan Layanan tidak ditemukan");
     click(save);
-    await sleep(600);
+    const closed = await waitFor(
+      () => (findDialogByTitle(/layanan/i) ? null : true),
+      6000,
+      150,
+      "dialog layanan tertutup",
+    ).catch(() => false);
+    if (!closed) throw new Error("Dialog Layanan masih terbuka setelah Simpan Layanan. Periksa isian layanan.");
     LOG("Layanan OK");
   }
 
-  async function setDischarge() {
-    const control = nearbyControlFromLabel("Status Pulang");
-    if (!control) throw new Error("Kolom Status Pulang tidak ditemukan");
-    await chooseFromDropdown(control, TEMPLATE.discharge, "exact");
-    LOG("Status pulang OK");
-  }
-
   // Khusus mode RESUME: salin isi Keluhan Utama ke kolom Anamnesa.
-  // Menggunakan beberapa strategi karena struktur DOM Klinik Pintar dapat berubah.
   async function copyChiefComplaintToAnamnesis() {
     const chief = await waitFor(
-      () =>
-        nearbyControlFromLabel("Keluhan Utama") ||
-        findInputByPlaceholder(["Keluhan Utama", "Masukkan Keluhan Utama"]),
+      () => textFieldByIdOrLabel("tf_complaint", "Keluhan Utama", ["Keluhan Utama", "Masukkan Keluhan Utama"]),
       5000,
       120,
       "kolom Keluhan Utama",
     );
-
-    const chiefInput = getEditableInput(chief);
-    const chiefValue = (
-      chiefInput?.value ||
-      chiefInput?.textContent ||
-      ""
-    ).trim();
-
+    const chiefValue = String(chief.value || chief.textContent || "").trim();
     if (!chiefValue) {
       LOG("Resume: Keluhan Utama kosong -> Anamnesa tidak disalin");
       return false;
     }
 
     const anamnesis = await waitFor(
-      () => {
-        const byLabel = nearbyControlFromLabel("Anamnesa");
-        if (byLabel) return byLabel;
-        return findInputByPlaceholder(["Anamnesa"]);
-      },
+      () => textFieldByIdOrLabel("tf_anamese", "Anamnesa", ["Anamnesa"]),
       5000,
       120,
       "kolom Anamnesa",
     );
-
     nativeSetValue(anamnesis, chiefValue);
     await sleep(250);
-
-    // Verifikasi nilai benar-benar masuk ke controlled input React.
-    const anamnesisInput = getEditableInput(anamnesis);
-    if ((anamnesisInput?.value || "").trim() !== chiefValue) {
-      nativeSetValue(anamnesisInput || anamnesis, chiefValue);
+    if (String(anamnesis.value || "").trim() !== chiefValue) {
+      nativeSetValue(anamnesis, chiefValue);
       await sleep(200);
     }
-
     LOG(`Resume: Keluhan Utama berhasil disalin ke Anamnesa -> ${chiefValue}`);
     return true;
   }
 
   function validateAndReport() {
-    const checks = [];
-    const diag =
-      nearbyControlFromLabel("Diagnosa") ||
-      findInputByPlaceholder(["Masukkan diagnosa"]);
-    const icd =
-      nearbyControlFromLabel("ICD 10 (2010)") ||
-      findInputByPlaceholder([
-        "Masukan kode atau diagnosa/penyakit",
-        "Masukkan kode atau diagnosa/penyakit",
-      ]);
-    const prog = nearbyControlFromLabel("Prognosa");
-    const stat = nearbyControlFromLabel("Status Kesadaran");
-    const discharge = nearbyControlFromLabel("Status Pulang");
-    checks.push([
-      "Diagnosa",
-      norm(diag?.value || text(diag)).includes(
-        "acute upper respiratory infections",
-      ),
-    ]);
-    checks.push([
-      "ICD J06",
-      norm(icd?.value || "").includes("j06") ||
-        norm(
-          text(icd?.closest?.('.ant-select, [role="combobox"]') || icd),
-        ).includes("j06"),
-    ]);
-    checks.push(["Prognosa", norm(text(prog)).includes("bonam")]);
-    checks.push([
-      "Status kesadaran",
-      norm(text(stat)).includes("compos mentis"),
-    ]);
-    checks.push([
-      "Status pulang",
-      norm(text(discharge)).includes("berobat jalan"),
-    ]);
+    const same = (root, value) => norm(msShown(root)) === norm(value);
+    const checks = [
+      ["ICD J06", icdAlreadySelected("J06")],
+      ["Prognosa", same(fieldRoot("dd_prognosis", "Prognosa"), TEMPLATE.prognosis)],
+      ["Status kesadaran", same(msRootByLabel("Status Kesadaran"), TEMPLATE.consciousness)],
+      ["Status pulang", same(fieldRoot("dd_status", "Status Pulang"), TEMPLATE.discharge)],
+    ];
     const failed = checks.filter((x) => !x[1]).map((x) => x[0]);
     if (failed.length)
       notify("Periksa manual: " + failed.join(", "), "warn", 10000);
@@ -2086,187 +2098,6 @@
       texts.find(([, t]) => containsItemName(t, wanted))?.[0] ||
       null
     );
-  }
-
-  function findPrescriptionModal() {
-    const candidates = [
-      ...document.querySelectorAll(
-        '[role="dialog"], .ant-modal, .ant-modal-wrap, .ant-modal-root, [class*="modal"]',
-      ),
-    ].filter(visible);
-
-    return (
-      candidates.find((m) => {
-        const t = norm(text(m));
-        return (
-          t.includes("buat resep") ||
-          t.includes("cari obat") ||
-          t.includes("rekomendasi inventori")
-        );
-      }) || null
-    );
-  }
-
-  function findPrescriptionSearch() {
-    const inputs = [
-      ...document.querySelectorAll('input:not([type="hidden"]), textarea'),
-    ].filter(visible);
-
-    // Exact screenshot label/placeholder.
-    let input = inputs.find(
-      (i) => norm(i.getAttribute("placeholder") || "") === "cari obat",
-    );
-    if (input) return input;
-
-    input = inputs.find((i) =>
-      norm(i.getAttribute("placeholder") || "").includes("cari obat"),
-    );
-    if (input) return input;
-
-    // The visible recipe modal has the search box as the first text input.
-    const modal = findPrescriptionModal();
-    if (modal) {
-      const inside = [
-        ...modal.querySelectorAll('input:not([type="hidden"]), textarea'),
-      ].filter(visible);
-      return (
-        inside.find(
-          (i) => norm(i.getAttribute("placeholder") || "").length === 0,
-        ) ||
-        inside[0] ||
-        null
-      );
-    }
-
-    return null;
-  }
-
-  function findDrugOptionExact(drug) {
-    const target = norm(drug.key);
-    for (const root of visibleSelectDropdowns()) {
-      const options = [
-        ...root.querySelectorAll(
-          '[role="option"], .ant-select-item-option, .ant-select-item, li',
-        ),
-      ].filter(visible);
-
-      for (const opt of options) {
-        const t = norm(text(opt));
-        if (
-          t === target ||
-          t === norm(drug.search) ||
-          optionItemName(t) === target
-        ) {
-          return opt;
-        }
-      }
-    }
-    return null;
-  }
-
-  // Baris obat di form resep = elemen TERKECIL yang memuat nama obat DAN
-  // minimal 4 kolom isian. v9.4: pilihan di dropdown pencarian tidak lagi dianggap
-  // baris (dulu ikut terhitung sehingga script mengira obat sudah masuk padahal
-  // belum, lalu berhenti dengan "Field resep tidak lengkap").
-  const DROPDOWN_SCOPE =
-    '.ant-select-dropdown, .rc-select-dropdown, [role="listbox"], [role="option"], .ant-select-item';
-  function medicationRowFor(drug) {
-    const target = norm(drug.key);
-    const modal = findPrescriptionModal() || document;
-    const nodes = [...modal.querySelectorAll("div, tr, li")]
-      .filter(
-        (el) =>
-          !el.closest(DROPDOWN_SCOPE) &&
-          !isOwnUi(el) &&
-          containsItemName(norm(text(el)), target) &&
-          visible(el),
-      )
-      .sort((a, b) => text(a).length - text(b).length);
-
-    for (const el of nodes) {
-      const inputs = [
-        ...el.querySelectorAll('input:not([type="hidden"]), textarea'),
-      ].filter(
-        (i) =>
-          visible(i) &&
-          !norm(i.getAttribute("placeholder") || "").includes("cari obat"),
-      );
-      // Frekuensi, dosis, hari, jumlah = minimal 4 kolom (v9.5; dulu 2, sehingga
-      // wadah kecil berisi nama + baris pertama saja bisa dikira baris obat).
-      if (inputs.length >= 4) return el;
-    }
-    return null;
-  }
-
-  function visibleEditableInputsInRow(row) {
-    return [...row.querySelectorAll('input:not([type="hidden"])')]
-      .filter(visible)
-      .filter((i) => !i.disabled && !i.readOnly)
-      .filter(
-        (i) => !norm(i.getAttribute("placeholder") || "").includes("cari obat"),
-      );
-  }
-
-  function classifyRecipeInputs(row) {
-    const inputs = visibleEditableInputsInRow(row);
-
-    // The current Klinik Pintar UI shown by the user has this layout:
-    // line 1: FREQUENCY × DOSE × DAYS
-    // line 2: QUANTITY + unit Tablet
-    //
-    // Use DOM geometry rather than assuming "fourth input" because the
-    // component may contain hidden/re-rendered inputs.
-    const positioned = inputs
-      .map((i) => {
-        try {
-          const r = i.getBoundingClientRect();
-          return { i, r };
-        } catch (_) {
-          return null;
-        }
-      })
-      .filter(Boolean)
-      .filter((x) => x.r.width > 0 && x.r.height > 0);
-
-    const rows = [];
-    for (const item of positioned) {
-      let group = rows.find((g) => Math.abs(g.y - item.r.top) <= 12);
-      if (!group) {
-        group = { y: item.r.top, items: [] };
-        rows.push(group);
-      }
-      group.items.push(item);
-    }
-
-    rows.sort((a, b) => a.y - b.y);
-    rows.forEach((g) => g.items.sort((a, b) => a.r.left - b.r.left));
-
-    // Prefer the screenshot-confirmed 3+1 pattern.
-    if (
-      rows.length >= 2 &&
-      rows[0].items.length >= 3 &&
-      rows[1].items.length >= 1
-    ) {
-      return {
-        freq: rows[0].items[0].i,
-        dose: rows[0].items[1].i,
-        days: rows[0].items[2].i,
-        total: rows[1].items[0].i,
-      };
-    }
-
-    // Fallback: classify by vertical position relative to first input.
-    if (positioned.length >= 4) {
-      positioned.sort((a, b) => a.r.top - b.r.top || a.r.left - b.r.left);
-      return {
-        freq: positioned[0].i,
-        dose: positioned[1].i,
-        days: positioned[2].i,
-        total: positioned[3].i,
-      };
-    }
-
-    return { freq: null, dose: null, days: null, total: null };
   }
 
   async function setRecipeInputVerified(input, value, label) {
@@ -2328,677 +2159,6 @@
     );
   }
 
-  function safeClick(el, purpose = "elemen") {
-    if (!el) throw new Error(`Elemen ${purpose} tidak ditemukan`);
-
-    // Never allow the automation's instruction/option logic to touch a delete
-    // control. This is an explicit safety barrier for the red trash buttons
-    // visible on every medication row.
-    if (isDangerousDeleteElement(el)) {
-      throw new Error(
-        `Klik diblokir untuk keamanan: elemen ${purpose} terdeteksi sebagai tombol hapus.`,
-      );
-    }
-
-    return click(el);
-  }
-
-  function findInstructionLabelInRow(row) {
-    const nodes = [...row.querySelectorAll("span,div,p,label")]
-      .filter(visible)
-      .filter((el) => !isDangerousDeleteElement(el))
-      .filter((el) => norm(text(el)) === "instruksi");
-    return nodes.sort((a, b) => text(a).length - text(b).length)[0] || null;
-  }
-
-  // Baris obat Klinik Pintar (dari screenshot): baris 1 = [nama obat] [frek] x [dosis]
-  // [hari] [Satuan Pemakaian ▾] [Instruksi ▾]; baris 2 = [jumlah] [satuan ▾].
-  // Pilihan Satuan Pemakaian & Instruksi = dua pilihan di KANAN kolom frekuensi,
-  // sejajar baris 1. Dipakai bila teks placeholder "Instruksi"/"Satuan Pemakaian"
-  // tidak tampil (mis. sudah berisi nilai bawaan seperti "Tablet"/"Setelah Makan").
-  function rowSignaSelects(row) {
-    const freq = classifyRecipeInputs(row).freq;
-    if (!freq) return [];
-    const fr = freq.getBoundingClientRect();
-    const midY = fr.top + fr.height / 2;
-    return [...row.querySelectorAll(".ant-select")]
-      .filter((el) => visible(el) && !isDangerousDeleteElement(el) && !el.parentElement?.closest(".ant-select"))
-      .map((el) => ({ el, r: el.getBoundingClientRect() }))
-      .filter(({ r }) => r.width > 0 && r.left > fr.right && Math.abs(r.top + r.height / 2 - midY) <= 20)
-      .sort((a, b) => a.r.left - b.r.left)
-      .map(({ el }) => el);
-  }
-
-  function findInstructionControl(row) {
-    const label = findInstructionLabelInRow(row);
-    if (!label) {
-      const selects = rowSignaSelects(row);
-      return selects.length >= 2 ? selects[selects.length - 1] : null;
-    }
-
-    // Walk upward from the exact visible word "Instruksi" and stop at the
-    // smallest element that is actually interactive or contains an interactive
-    // child. This keeps the search strictly inside the current medicine row.
-    let p = label;
-    for (let i = 0; i < 8 && p; i++, p = p.parentElement) {
-      if (!visible(p) || isDangerousDeleteElement(p)) continue;
-      const r = p.getBoundingClientRect();
-      if (r.width < 60 || r.width > 260 || r.height < 24 || r.height > 80)
-        continue;
-      if (
-        p.matches?.(
-          '.ant-select, .ant-select-selector, [role="combobox"], input, button',
-        )
-      )
-        return p;
-      const interactive = p.querySelector?.(
-        '.ant-select-selector, .ant-select, [role="combobox"], input:not([type="hidden"])',
-      );
-      if (
-        interactive &&
-        visible(interactive) &&
-        !isDangerousDeleteElement(interactive)
-      )
-        return interactive;
-    }
-
-    // Geometry fallback: use the exact visual box around the label, never any
-    // button to the right (which could be the red trash/delete button).
-    return label;
-  }
-
-  function dispatchPointerClick(el) {
-    if (!el || isDangerousDeleteElement(el)) return false;
-    try {
-      const r = el.getBoundingClientRect();
-      const x =
-        r.left +
-        Math.min(Math.max(r.width * 0.45, 8), Math.max(r.width - 8, 8));
-      const y = r.top + r.height / 2;
-      const C = window.MouseEvent;
-      for (const type of [
-        "pointerdown",
-        "mousedown",
-        "pointerup",
-        "mouseup",
-        "click",
-      ]) {
-        const EventCtor =
-          type.startsWith("pointer") && window.PointerEvent
-            ? window.PointerEvent
-            : C;
-        el.dispatchEvent(
-          new EventCtor(type, {
-            bubbles: true,
-            cancelable: true,
-            composed: true,
-            clientX: x,
-            clientY: y,
-            pointerId: 1,
-            pointerType: "mouse",
-          }),
-        );
-      }
-      return true;
-    } catch (_) {
-      return safeClick(el, "kontrol Instruksi");
-    }
-  }
-
-  function visibleInstructionPortals() {
-    return [
-      ...document.querySelectorAll(
-        '.ant-select-dropdown, .ant-dropdown, [role="listbox"], .rc-select-dropdown',
-      ),
-    ]
-      .filter(visible)
-      .filter((el) => !isDangerousDeleteElement(el));
-  }
-
-  function findInstructionOption(instruction) {
-    const target = norm(instruction);
-    if (!target) return null;
-
-    // IMPORTANT: the Klinik Pintar instruction menu is not always rendered as
-    // an Ant Design portal. On some pages the result is a plain floating div.
-    // Therefore search ALL visible DOM, then climb to the nearest real option.
-    const roots = [...visibleInstructionPortals(), document];
-
-    const seen = new Set();
-    const hits = [];
-
-    for (const root of roots) {
-      const candidates = [
-        ...root.querySelectorAll(
-          '[role="option"], .ant-select-item-option, .ant-select-item, .ant-dropdown-menu-item, li, button, div, span',
-        ),
-      ];
-
-      for (const el of candidates) {
-        if (seen.has(el)) continue;
-        seen.add(el);
-        if (!visible(el) || isDangerousDeleteElement(el)) continue;
-
-        const t = norm(text(el));
-        if (t !== target && !t.startsWith(target + " ")) continue;
-
-        // Never use a huge parent/container. Prefer the smallest element that
-        // represents the exact visible option, then climb only to a known
-        // interactive option wrapper.
-        let option =
-          el.closest?.(
-            '[role="option"], .ant-select-item-option, .ant-select-item, .ant-dropdown-menu-item, li, button',
-          ) || el;
-
-        if (!visible(option) || isDangerousDeleteElement(option)) continue;
-        const r = option.getBoundingClientRect();
-        if (r.width < 20 || r.height < 12) continue;
-
-        hits.push({
-          option,
-          area: r.width * r.height,
-          len: text(option).length,
-        });
-      }
-    }
-
-    if (!hits.length) return null;
-
-    // Exact option with the smallest visual/text footprint is almost always
-    // the actual menu item instead of its dropdown container.
-    hits.sort((a, b) => a.len - b.len || a.area - b.area);
-    return hits[0].option;
-  }
-
-  function instructionSelected(row, instruction) {
-    const target = norm(instruction);
-    if (!row || !target) return false;
-
-    // 1) Look for the text/value inside the current medication row.
-    const rowMatch = [
-      ...row.querySelectorAll(
-        '.ant-select, .ant-select-selector, [role="combobox"], input, textarea, div, span',
-      ),
-    ]
-      .filter(visible)
-      .some(
-        (el) =>
-          norm(text(el)).includes(target) ||
-          norm(el.value || "").includes(target) ||
-          norm(el.getAttribute?.("title") || "").includes(target),
-      );
-    if (rowMatch) return true;
-
-    // 2) The selected Ant Design label can be rendered outside the row's direct
-    // text node. Inspect the actual instruction control.
-    const control = findInstructionControl(row);
-    if (control) {
-      const label = norm(text(control));
-      const value = norm(control.value || "");
-      const aria = norm(control.getAttribute?.("aria-label") || "");
-      const title = norm(control.getAttribute?.("title") || "");
-      if (
-        label.includes(target) ||
-        value.includes(target) ||
-        aria.includes(target) ||
-        title.includes(target)
-      )
-        return true;
-    }
-
-    return false;
-  }
-
-  async function clickInstructionOption(option, instruction, row) {
-    if (!option) return false;
-
-    const clickable =
-      option.closest?.(
-        '[role="option"], .ant-select-item-option, .ant-dropdown-menu-item, li',
-      ) || option;
-
-    if (isDangerousDeleteElement(clickable)) {
-      throw new Error(
-        "Klik opsi Instruksi diblokir karena terdeteksi sebagai elemen hapus.",
-      );
-    }
-
-    try {
-      clickable.scrollIntoView({ block: "center", behavior: "auto" });
-    } catch (_) {}
-    try {
-      clickable.focus?.();
-    } catch (_) {}
-
-    // First use the browser's native click. For React/Ant Design this is often
-    // more reliable than only dispatching a synthetic pointer sequence.
-    try {
-      if (typeof clickable.click === "function") {
-        clickable.click();
-      }
-    } catch (e) {
-      LOG("native click Instruksi gagal", e);
-    }
-
-    await sleep(250);
-
-    if (
-      !optionStillVisible(clickable) ||
-      instructionSelected(row, instruction)
-    ) {
-      return true;
-    }
-
-    // Second attempt: fire a complete pointer/mouse sequence on the option
-    // itself, not on a text span.
-    try {
-      const doc = clickable.ownerDocument || document;
-      const win = doc.defaultView || window;
-      const r = clickable.getBoundingClientRect();
-      const MC = win.MouseEvent || window.MouseEvent;
-      const PC = win.PointerEvent || MC;
-      const x = r.left + r.width / 2;
-      const y = r.top + r.height / 2;
-
-      if (typeof PC === "function") {
-        clickable.dispatchEvent(
-          new PC("pointerdown", {
-            bubbles: true,
-            cancelable: true,
-            composed: true,
-            clientX: x,
-            clientY: y,
-            pointerId: 1,
-            pointerType: "mouse",
-          }),
-        );
-      }
-      if (typeof MC === "function") {
-        clickable.dispatchEvent(
-          new MC("mousedown", {
-            bubbles: true,
-            cancelable: true,
-            composed: true,
-            clientX: x,
-            clientY: y,
-            button: 0,
-            buttons: 1,
-          }),
-        );
-      }
-      if (typeof PC === "function") {
-        clickable.dispatchEvent(
-          new PC("pointerup", {
-            bubbles: true,
-            cancelable: true,
-            composed: true,
-            clientX: x,
-            clientY: y,
-            pointerId: 1,
-            pointerType: "mouse",
-          }),
-        );
-      }
-      if (typeof MC === "function") {
-        clickable.dispatchEvent(
-          new MC("mouseup", {
-            bubbles: true,
-            cancelable: true,
-            composed: true,
-            clientX: x,
-            clientY: y,
-            button: 0,
-          }),
-        );
-        clickable.dispatchEvent(
-          new MC("click", {
-            bubbles: true,
-            cancelable: true,
-            composed: true,
-            clientX: x,
-            clientY: y,
-            button: 0,
-          }),
-        );
-      }
-    } catch (e) {
-      LOG("pointer click Instruksi gagal", e);
-    }
-
-    await sleep(250);
-
-    if (
-      !optionStillVisible(clickable) ||
-      instructionSelected(row, instruction)
-    ) {
-      return true;
-    }
-
-    // Third attempt: Enter hanya bila opsi ini yang disorot (v9.4: dulu
-    // ArrowDown+Enter bisa memilih instruksi lain).
-    const control = findInstructionControl(row);
-    const focusTarget = getEditableInput(control) || control;
-    if (focusTarget) await pressEnterOnOption(focusTarget, clickable);
-
-    await sleep(300);
-
-    if (
-      !optionStillVisible(clickable) ||
-      instructionSelected(row, instruction)
-    ) {
-      return true;
-    }
-
-    // Last resort: click the exact option text node and its nearest parent.
-    // Some Klinik Pintar builds attach the handler to the text element rather
-    // than the Ant Design option wrapper.
-    const exact = findInstructionOption(instruction);
-    if (exact) {
-      const targets = [
-        exact.querySelector?.(".ant-select-item-option-content"),
-        exact,
-        exact.parentElement,
-      ]
-        .filter(Boolean)
-        .filter((x) => visible(x) && !isDangerousDeleteElement(x));
-
-      for (const target of targets) {
-        try {
-          target.scrollIntoView({ block: "center", behavior: "auto" });
-        } catch (_) {}
-        try {
-          dispatchPointerClick(target);
-        } catch (_) {}
-        try {
-          target.click?.();
-        } catch (_) {}
-        await sleep(180);
-        if (instructionSelected(row, instruction) || !optionStillVisible(exact))
-          return true;
-      }
-    }
-
-    return instructionSelected(row, instruction);
-  }
-
-  function isMealPresetInstruction(instruction) {
-    const t = norm(instruction);
-    return t === "setelah makan" || t === "sebelum makan";
-  }
-
-  function findInstructionOptionExactText(textWanted) {
-    const target = norm(textWanted);
-    if (!target) return null;
-
-    // KRITIS: pada resep multi-obat, teks "Setelah Makan" dapat sudah tampil
-    // sebagai nilai terpilih di baris obat sebelumnya. Jangan pernah mengambil
-    // teks tersebut dari seluruh dokumen jika dropdown aktif sudah ada.
-    const portals = visibleInstructionPortals();
-    const roots = portals.length ? portals : [document];
-    const seen = new Set();
-    const hits = [];
-
-    for (const root of roots) {
-      const nodes = [
-        ...root.querySelectorAll(
-          '[role="option"], .ant-select-item-option, .ant-select-item, ' +
-            '.ant-dropdown-menu-item, li, button, [role="button"], div, span',
-        ),
-      ];
-
-      for (const el of nodes) {
-        if (seen.has(el)) continue;
-        seen.add(el);
-        if (!visible(el) || isDangerousDeleteElement(el)) continue;
-
-        const t = norm(text(el));
-        if (t !== target) continue;
-
-        // Jika root adalah document (fallback), hanya terima elemen yang benar-
-        // benar merupakan option/menu item. Ini mencegah selected label pada
-        // baris obat lain dianggap sebagai opsi dropdown.
-        let option =
-          el.closest?.(
-            '[role="option"], .ant-select-item-option, .ant-select-item, ' +
-              ".ant-dropdown-menu-item, li, button",
-          ) || el;
-
-        if (root === document) {
-          const isRealOption = option.matches?.(
-            '[role="option"], .ant-select-item-option, .ant-select-item, .ant-dropdown-menu-item, li, button',
-          );
-          if (!isRealOption) continue;
-        }
-
-        if (!visible(option) || isDangerousDeleteElement(option)) continue;
-        const r = option.getBoundingClientRect();
-        if (!r.width || !r.height) continue;
-
-        hits.push({
-          option,
-          area: r.width * r.height,
-          len: text(option).length,
-        });
-      }
-    }
-
-    hits.sort((a, b) => a.len - b.len || a.area - b.area);
-    return hits[0]?.option || null;
-  }
-
-  function findCustomInstructionInput(row, previousInputs = []) {
-    if (!row) return null;
-
-    const before = new Set(previousInputs || []);
-    const inputs = [
-      ...row.querySelectorAll('input:not([type="hidden"]), textarea'),
-    ]
-      .filter(visible)
-      .filter((i) => !i.disabled && !i.readOnly)
-      .filter((i) => !isDangerousDeleteElement(i));
-
-    // 1) Prefer an explicit "Lainnya/Tulis" style placeholder.
-    const explicit = inputs.find((i) => {
-      const meta = norm(
-        [
-          i.getAttribute("placeholder") || "",
-          i.getAttribute("aria-label") || "",
-          i.getAttribute("title") || "",
-        ].join(" "),
-      );
-      return meta.includes("tulis") || meta.includes("lainnya");
-    });
-    if (explicit) return explicit;
-
-    // 2) Prefer an input that was newly rendered after selecting Lainnya.
-    const newlyAdded = inputs.find((i) => !before.has(i));
-    if (newlyAdded) return newlyAdded;
-
-    // 3) Geometry fallback: find an editable text field closest to the
-    // instruction selector, while excluding the main Cari Obat input and
-    // the numeric frequency/dose/day/quantity fields.
-    const control = findInstructionControl(row);
-    const cr = control?.getBoundingClientRect?.();
-
-    const candidates = inputs
-      .filter((i) => norm(i.getAttribute("placeholder") || "") !== "cari obat")
-      .filter((i) => !/^\d*$/.test(String(i.value || "").trim()))
-      .map((i) => ({ i, r: i.getBoundingClientRect() }))
-      .filter((x) => x.r.width > 20 && x.r.height > 15)
-      .sort((a, b) => {
-        if (!cr) return a.r.top - b.r.top;
-        const ac = Math.abs(a.r.left - cr.left) + Math.abs(a.r.top - cr.bottom);
-        const bc = Math.abs(b.r.left - cr.left) + Math.abs(b.r.top - cr.bottom);
-        return ac - bc;
-      });
-
-    return candidates[0]?.i || null;
-  }
-
-  async function selectLainnyaTulis(row, itemName) {
-    // The dropdown must already be open.
-    const option = await waitFor(
-      () =>
-        findInstructionOptionExactText("Lainnya (tulis)") ||
-        findInstructionOptionExactText("Lainnya"),
-      3500,
-      60,
-      `opsi Lainnya (tulis) ${itemName}`,
-    );
-
-    const beforeInputs = [
-      ...row.querySelectorAll('input:not([type="hidden"]), textarea'),
-    ].filter(visible);
-
-    const clicked = await clickInstructionOption(
-      option,
-      "Lainnya (tulis)",
-      row,
-    );
-    await sleep(350);
-
-    if (!clicked && !instructionSelected(row, "Lainnya")) {
-      throw new Error(`Opsi Lainnya (tulis) gagal dipilih untuk ${itemName}`);
-    }
-
-    return { beforeInputs };
-  }
-
-  async function setCustomInstructionText(
-    row,
-    instruction,
-    itemName,
-    beforeInputs = [],
-  ) {
-    const input = await waitFor(
-      () => findCustomInstructionInput(row, beforeInputs),
-      3500,
-      80,
-      `kolom teks Lainnya (tulis) ${itemName}`,
-    );
-
-    await setRecipeInputVerified(
-      input,
-      instruction,
-      `Instruksi custom ${itemName}`,
-    );
-
-    const verified = await waitFor(
-      () =>
-        norm(input.value || "") === norm(instruction) ||
-        instructionSelected(row, instruction),
-      2200,
-      60,
-      `verifikasi teks Instruksi ${itemName}`,
-    ).catch(() => false);
-
-    if (!verified) {
-      throw new Error(
-        `Instruksi custom ${itemName} belum terisi: ${instruction}`,
-      );
-    }
-
-    LOG(`Instruksi custom ${itemName} OK: ${instruction}`);
-  }
-
-  async function setInstruction(row, instruction, itemName) {
-    const targetText = norm(instruction);
-    if (!targetText) return;
-
-    const control = await waitFor(
-      () => findInstructionControl(row),
-      3500,
-      60,
-      `kolom Instruksi ${itemName}`,
-    );
-    if (!control || isDangerousDeleteElement(control)) {
-      throw new Error(
-        `Kolom Instruksi ${itemName} tidak ditemukan dengan aman`,
-      );
-    }
-
-    // Setelah Makan / Sebelum Makan harus selalu memakai preset langsung.
-    dispatchPointerClick(control);
-    try {
-      control.focus?.();
-    } catch (_) {}
-    await sleep(180);
-
-    if (isMealPresetInstruction(instruction)) {
-      // Ulang maksimal 3 kali. Setiap percobaan harus mencari opsi dari
-      // dropdown yang sedang aktif, sehingga Calcium tidak salah mengklik
-      // tulisan "Setelah Makan" milik obat sebelumnya.
-      let selected = false;
-
-      for (let attempt = 1; attempt <= 3 && !selected; attempt++) {
-        if (!visibleInstructionPortals().length) {
-          dispatchPointerClick(control);
-          await sleep(220);
-        }
-
-        const option = await waitFor(
-          () => findInstructionOptionExactText(instruction),
-          2500,
-          60,
-          `target Instruksi ${instruction} percobaan ${attempt} untuk ${itemName}`,
-        ).catch(() => null);
-
-        if (option) {
-          selected = await clickInstructionOption(option, instruction, row);
-          await sleep(220);
-        }
-
-        if (!selected && !instructionSelected(row, instruction)) {
-          // Tutup/buka ulang dropdown lalu cari ulang opsi aktif.
-          try {
-            keypress(control, "Escape", "Escape", 27);
-          } catch (_) {}
-          await sleep(120);
-          dispatchPointerClick(control);
-          await sleep(220);
-        }
-
-        selected = selected || instructionSelected(row, instruction);
-      }
-
-      // Fallback terakhir: Enter hanya bila opsi target sedang disorot.
-      if (!selected) {
-        const option = findInstructionOptionExactText(instruction);
-        if (option && (await pressEnterOnOption(getEditableInput(control) || control, option))) {
-          await sleep(350);
-          selected = instructionSelected(row, instruction);
-        }
-      }
-
-      const verified = await waitFor(
-        () => instructionSelected(row, instruction),
-        3500,
-        60,
-        `verifikasi Instruksi ${itemName}: ${instruction}`,
-      ).catch(() => false);
-
-      if (!verified) {
-        throw new Error(`Instruksi ${itemName} belum terpilih: ${instruction}`);
-      }
-
-      LOG(`Instruksi ${itemName} OK: ${instruction}`);
-      return;
-    }
-
-    // Semua instruksi lain -> Lainnya (tulis) + isi teks.
-    const beforeInputs = [
-      ...row.querySelectorAll('input:not([type="hidden"]), textarea'),
-    ].filter(visible);
-
-    const custom = await selectLainnyaTulis(row, itemName);
-    await setCustomInstructionText(
-      row,
-      instruction,
-      itemName,
-      custom.beforeInputs.length ? custom.beforeInputs : beforeInputs,
-    );
-  }
-
   function isMedicalSupplyItem(drug) {
     const key = norm(drug?.key || "");
     return [
@@ -3017,6 +2177,9 @@
   function isSyrupMedication(drug) {
     const key = norm(drug?.key || "");
     const unit = norm(drug?.unit || "");
+    // v10: satuan pemakaian eksplisit selain ml (mis. tetes mata dalam botol) bukan sirup.
+    const usage = norm(drug?.usageUnit || "");
+    if (usage && usage !== "ml") return false;
     return (
       ["ml", "bottle", "botol"].includes(unit) ||
       /syrup|sirup|\bsyr\b|suspensi|\bsusp\b/.test(key)
@@ -3042,299 +2205,6 @@
     );
   }
 
-  function findRowLabel(row, labelText) {
-    const target = norm(labelText);
-    return (
-      [...row.querySelectorAll("span,div,p,label")]
-        .filter(visible)
-        .find((el) => {
-          const t = norm(text(el)).replace(/\*/g, "").trim();
-          return t === target || t.startsWith(target + " ");
-        }) || null
-    );
-  }
-
-  function findUnitUsageControl(row) {
-    const label = findRowLabel(row, "Satuan Pemakaian");
-    if (!label) return null;
-
-    let p = label;
-    for (let i = 0; i < 8 && p; i++, p = p.parentElement) {
-      if (!visible(p) || isDangerousDeleteElement(p)) continue;
-      const r = p.getBoundingClientRect();
-      if (r.width < 60 || r.width > 360 || r.height < 24 || r.height > 120)
-        continue;
-
-      if (p.matches?.('.ant-select, .ant-select-selector, [role="combobox"]'))
-        return p;
-
-      const interactive = p.querySelector?.(
-        '.ant-select, .ant-select-selector, [role="combobox"], input:not([type="hidden"]), textarea',
-      );
-      if (
-        interactive &&
-        visible(interactive) &&
-        !isDangerousDeleteElement(interactive)
-      ) {
-        return interactive;
-      }
-    }
-    return null;
-  }
-
-  // Untuk baris obat: label "Satuan Pemakaian", atau pilihan pertama di kanan kolom
-  // frekuensi (lihat rowSignaSelects). Racikan tetap memakai findUnitUsageControl.
-  function findRowUnitUsageControl(row) {
-    const byLabel = findUnitUsageControl(row);
-    if (byLabel) return byLabel;
-    const selects = rowSignaSelects(row);
-    return selects.length >= 2 ? selects[0] : null;
-  }
-
-  function findUnitUsageCustomInput(row, beforeInputs = []) {
-    const before = new Set(beforeInputs || []);
-    const inputs = [
-      ...row.querySelectorAll('input:not([type="hidden"]), textarea'),
-    ]
-      .filter(visible)
-      .filter((i) => !i.disabled && !i.readOnly)
-      .filter((i) => !isDangerousDeleteElement(i))
-      .filter((i) => norm(i.getAttribute("placeholder") || "") !== "cari obat");
-
-    const explicit = inputs.find((i) => {
-      const meta = norm(
-        [
-          i.getAttribute("placeholder") || "",
-          i.getAttribute("aria-label") || "",
-          i.getAttribute("title") || "",
-        ].join(" "),
-      );
-      return meta.includes("lainnya") || meta.includes("tulis");
-    });
-    if (explicit) return explicit;
-
-    const newlyAdded = inputs.find((i) => !before.has(i));
-    if (newlyAdded) return newlyAdded;
-
-    const control = findRowUnitUsageControl(row);
-    const cr = control?.getBoundingClientRect?.();
-    if (!cr) return null;
-
-    return (
-      inputs
-        .map((i) => ({ i, r: i.getBoundingClientRect() }))
-        .filter((x) => x.r.width > 20 && x.r.height > 15)
-        .sort((a, b) => {
-          const da =
-            Math.abs(a.r.left - cr.left) + Math.abs(a.r.top - cr.bottom);
-          const db =
-            Math.abs(b.r.left - cr.left) + Math.abs(b.r.top - cr.bottom);
-          return da - db;
-        })[0]?.i || null
-    );
-  }
-
-  async function selectUnitUsagePreset(row, unitText, itemName) {
-    const control = await waitFor(
-      () => findRowUnitUsageControl(row),
-      3500,
-      60,
-      `kolom Satuan Pemakaian ${itemName}`,
-    );
-
-    dispatchPointerClick(control);
-    try {
-      control.focus?.();
-    } catch (_) {}
-    await sleep(180);
-
-    // "Oles" is a real preset in the Satuan Pemakaian dropdown.
-    const option = await waitFor(
-      () => findInstructionOptionExactText(unitText),
-      3500,
-      60,
-      `opsi Satuan Pemakaian ${unitText} ${itemName}`,
-    );
-
-    const selected = await clickInstructionOption(option, unitText, row);
-    await sleep(300);
-
-    if (
-      !selected ||
-      (!findInstructionOptionExactText(unitText) &&
-        !instructionSelected(row, unitText))
-    ) {
-      // Continue to verification below; the visible dropdown may already be closed.
-    }
-
-    const verified = await waitFor(
-      () =>
-        instructionSelected(row, unitText) ||
-        norm(text(findRowUnitUsageControl(row))) === norm(unitText),
-      2200,
-      60,
-      `verifikasi Satuan Pemakaian ${itemName}`,
-    ).catch(() => false);
-
-    if (!verified) {
-      throw new Error(
-        `Satuan Pemakaian ${itemName} belum terpilih: ${unitText}`,
-      );
-    }
-
-    LOG(`Satuan Pemakaian ${itemName} OK: ${unitText}`);
-  }
-
-  async function setUnitUsageForMedicalSupply(row, itemName) {
-    const control = await waitFor(
-      () => findRowUnitUsageControl(row),
-      3500,
-      60,
-      `kolom Satuan Pemakaian ${itemName}`,
-    );
-
-    const beforeInputs = [
-      ...row.querySelectorAll('input:not([type="hidden"]), textarea'),
-    ].filter(visible);
-
-    dispatchPointerClick(control);
-    try {
-      control.focus?.();
-    } catch (_) {}
-    await sleep(180);
-
-    const option = await waitFor(
-      () =>
-        findInstructionOptionExactText("Lainnya") ||
-        findInstructionOptionExactText("Lainnya (tulis)"),
-      3500,
-      60,
-      `opsi Satuan Pemakaian Lainnya ${itemName}`,
-    );
-
-    const selected = await clickInstructionOption(option, "Lainnya", row);
-    await sleep(300);
-
-    if (!selected) {
-      throw new Error(`Satuan Pemakaian Lainnya gagal dipilih: ${itemName}`);
-    }
-
-    const customInput = await waitFor(
-      () => findUnitUsageCustomInput(row, beforeInputs),
-      3500,
-      80,
-      `kolom teks Satuan Pemakaian ${itemName}`,
-    );
-
-    await setRecipeInputVerified(
-      customInput,
-      "PCS",
-      `Satuan Pemakaian ${itemName}`,
-    );
-
-    const verified = await waitFor(
-      () => norm(customInput.value || "") === "pcs",
-      2200,
-      60,
-      `verifikasi Satuan Pemakaian ${itemName}`,
-    ).catch(() => false);
-
-    if (!verified) {
-      throw new Error(`Satuan Pemakaian ${itemName} belum terisi PCS`);
-    }
-
-    LOG(`Satuan Pemakaian ${itemName} OK: Lainnya -> PCS`);
-  }
-
-  async function configureMedicationRow(drug) {
-    const row = await waitFor(
-      () => medicationRowFor(drug),
-      9000,
-      120,
-      `baris obat ${drug.key}`,
-    );
-
-    // ===== JUMLAH / DOSIS / HARI =====
-    // Keep the v2.5 geometry-based mapping, which matches the screenshot:
-    // first line = frekuensi, dosis, hari
-    // second line = total quantity.
-    const fields = classifyRecipeInputs(row);
-
-    if (!fields.freq || !fields.dose || !fields.days || !fields.total) {
-      throw new Error(
-        `Field resep ${drug.key} tidak lengkap: perlu Frekuensi, Dosis, Hari, dan Jumlah`,
-      );
-    }
-
-    await setRecipeInputVerified(fields.freq, drug.freq, "Frekuensi");
-    await setRecipeInputVerified(fields.dose, drug.dose, "Dosis");
-    if (String(drug.days ?? "").trim() !== "") {
-      await setRecipeInputVerified(fields.days, drug.days, "Jumlah hari");
-    }
-    if (String(drug.total ?? "").trim() !== "") {
-      await setRecipeInputVerified(fields.total, drug.total, "Jumlah obat");
-    }
-
-    // ===== SATUAN PEMAKAIAN =====
-    // Obat oles/salep menggunakan preset "Oles".
-    // Bahan medis/alat menggunakan "Lainnya" lalu teks "PCS".
-    if (isSyrupMedication(drug)) {
-      // Syrup: klik Satuan Pemakaian -> cari opsi ml -> pilih ml -> verifikasi.
-      await selectUnitUsagePreset(row, "ml", drug.key);
-    } else if (isTopicalMedication(drug)) {
-      // Betamethasone dan Gentamicin CR 5GR memakai fungsi preset yang sama:
-      // klik Satuan Pemakaian -> cari opsi Oles -> pilih Oles -> verifikasi.
-      await selectUnitUsagePreset(row, "Oles", drug.key);
-    } else if (isMedicalSupplyItem(drug)) {
-      await setUnitUsageForMedicalSupply(row, drug.key);
-    }
-
-    // ===== INSTRUKSI PEMAKAIAN =====
-    // Setelah/Sebelum Makan dipilih langsung.
-    // Instruksi lainnya memakai "Lainnya (tulis)" + teks custom template.
-    await setInstruction(row, drug.instruction || "SETELAH MAKAN", drug.key);
-
-    // ===== FINAL VERIFICATION =====
-    if (String(fields.freq.value || "").trim() !== String(drug.freq)) {
-      throw new Error(`Frekuensi ${drug.key} tidak sesuai`);
-    }
-    if (String(fields.dose.value || "").trim() !== String(drug.dose)) {
-      throw new Error(`Dosis ${drug.key} tidak sesuai`);
-    }
-    if (
-      String(drug.days ?? "").trim() !== "" &&
-      String(fields.days.value || "").trim() !== String(drug.days)
-    ) {
-      throw new Error(`Jumlah hari ${drug.key} tidak sesuai`);
-    }
-    if (String(drug.total ?? "").trim() !== "") {
-      if (String(fields.total.value || "").trim() !== String(drug.total)) {
-        await setRecipeInputVerified(fields.total, drug.total, "Jumlah obat");
-      }
-      if (String(fields.total.value || "").trim() !== String(drug.total)) {
-        throw new Error(
-          `Jumlah obat ${drug.key} tidak sesuai: harus ${drug.total}`,
-        );
-      }
-    }
-
-    if (!instructionSelected(row, drug.instruction || "SETELAH MAKAN")) {
-      throw new Error(
-        `Instruksi ${drug.key} belum sesuai template: ${drug.instruction || "SETELAH MAKAN"}`,
-      );
-    }
-
-    LOG(
-      `RESEP OK ${drug.key}: ` +
-        `${drug.freq} x ${drug.dose}` +
-        (String(drug.days ?? "").trim() ? ` | ${drug.days} hari` : "") +
-        (String(drug.total ?? "").trim()
-          ? ` | ${drug.total} ${drug.unit || "Tablet"}`
-          : "") +
-        ` | ${drug.instruction || "SETELAH MAKAN"}`,
-    );
-  }
-
   function buildDrugForItem(itemKey, recipe) {
     // Semua obat Paket Resep Golongan harus merujuk target yang sudah ada
     // pada master ITEMS agar pencarian/input konsisten dengan site.
@@ -3352,425 +2222,6 @@
       unit: item.unit,
       usageUnit: item.usageUnit || "",
     };
-  }
-
-  // Pilihan obat di dropdown "Cari Obat". Teks pilihan bisa memuat harga/satuan
-  // ("BPJS -- LODIA Rp 1.397 per tablet"), jadi urutan prioritas:
-  // persis -> diawali nama target -> mengandung nama target.
-  // v9.4: dulu pilihan PERTAMA yang "mengandung" langsung dipakai, dan <li> di
-  // seluruh halaman ikut dicari, sehingga bisa memilih varian lain atau baris resep.
-  function findExactTargetOption(target) {
-    const wanted = norm(target);
-    const OPTION = '[role="option"], .ant-select-item-option, .ant-select-item';
-    let opts = [
-      ...visibleSelectDropdowns().flatMap((r) => [...r.querySelectorAll(OPTION + ", li")]),
-      ...visiblePortals().flatMap((r) => [...r.querySelectorAll(OPTION)]),
-    ];
-    if (!opts.length) opts = [...document.querySelectorAll(OPTION)];
-    return pickBestItemOption(
-      opts.filter((o) => visible(o) && !isOwnUi(o) && !o.closest(".ant-select-selector")),
-      wanted,
-    );
-  }
-
-  // Cadangan keyboard yang AMAN: Enter hanya ditekan bila opsi target sedang
-  // disorot. v9.4: dulu ArrowDown+Enter — di Ant Design opsi pertama sudah
-  // tersorot, jadi ArrowDown memindah sorotan dan Enter bisa memasukkan obat LAIN.
-  async function pressEnterOnOption(search, option) {
-    const item = option?.closest?.('.ant-select-item-option, [role="option"]') || option;
-    if (!item) return false;
-    try {
-      for (const type of ["mouseover", "mouseenter", "mousemove"])
-        item.dispatchEvent(new MouseEvent(type, { bubbles: true, cancelable: true }));
-    } catch (_) {}
-    await sleep(120);
-    if (!/\bant-select-item-option-active\b/.test(String(item.className || ""))) return false;
-    try {
-      search.focus();
-    } catch (_) {}
-    keypress(search, "Enter", "Enter", 13);
-    return true;
-  }
-
-  function dispatchOptionSelection(option) {
-    if (!option) return false;
-    try {
-      option.scrollIntoView({ block: "center", behavior: "auto" });
-    } catch (_) {}
-
-    // Klinik Pintar / Ant Design can bind the selection to the OUTER option
-    // and to pointer/mousedown, not only to a child span's click event.
-    try {
-      const doc = option.ownerDocument || document;
-      const win = doc.defaultView || window;
-      const r = option.getBoundingClientRect();
-      const x = r.left + Math.max(5, r.width / 2);
-      const y = r.top + Math.max(5, r.height / 2);
-      const PointerCtor = win.PointerEvent || win.MouseEvent;
-      const MouseCtor = win.MouseEvent || window.MouseEvent;
-
-      for (const type of ["pointerdown", "mousedown"]) {
-        const Ctor = type.startsWith("pointer") ? PointerCtor : MouseCtor;
-        if (typeof Ctor === "function")
-          option.dispatchEvent(
-            new Ctor(type, {
-              bubbles: true,
-              cancelable: true,
-              composed: true,
-              clientX: x,
-              clientY: y,
-              button: 0,
-              buttons: 1,
-            }),
-          );
-      }
-      for (const type of ["pointerup", "mouseup", "click"]) {
-        const Ctor = type.startsWith("pointer") ? PointerCtor : MouseCtor;
-        if (typeof Ctor === "function")
-          option.dispatchEvent(
-            new Ctor(type, {
-              bubbles: true,
-              cancelable: true,
-              composed: true,
-              clientX: x,
-              clientY: y,
-              button: 0,
-            }),
-          );
-      }
-      return true;
-    } catch (err) {
-      LOG("dispatchOptionSelection fallback", err);
-      return click(option);
-    }
-  }
-
-  function optionStillVisible(option) {
-    return !!option && option.isConnected && visible(option);
-  }
-
-  async function selectTargetDrug(search, drug) {
-    try {
-      search.focus();
-    } catch (_) {}
-
-    nativeSetValue(search, "");
-    await sleep(150);
-    nativeSetValue(search, drug.search);
-
-    const option = await waitFor(
-      () => findExactTargetOption(drug.key) || findDrugOptionExact(drug),
-      10000,
-      100,
-      `target ${drug.key}`,
-    );
-
-    const waitRow = (ms) =>
-      waitFor(() => medicationRowFor(drug), ms, 120, `baris ${drug.key}`).catch(() => null);
-
-    // Percobaan 1: klik opsi (pembungkus luar) dengan urutan pointer lengkap,
-    // lalu tunggu baris obat muncul (server kadang lambat).
-    dispatchOptionSelection(option);
-    let row = await waitRow(2500);
-    if (row) return row;
-
-    // Percobaan 2: klik ulang opsi yang sama (dicari ulang; React bisa merender ulang).
-    let retryOption = findExactTargetOption(drug.key) || findDrugOptionExact(drug);
-    if (retryOption) {
-      click(retryOption);
-      row = await waitRow(2500);
-      if (row) return row;
-    }
-
-    // Percobaan 3: Enter, HANYA bila opsi target yang sedang disorot.
-    retryOption = findExactTargetOption(drug.key) || findDrugOptionExact(drug);
-    if (retryOption && (await pressEnterOnOption(search, retryOption))) {
-      row = await waitRow(2500);
-      if (row) return row;
-    }
-
-    const current = String(search.value || "").trim();
-    throw new Error(
-      `Target ${drug.key} sudah ditemukan tetapi belum berhasil dipilih ` +
-        `(kolom masih: "${current || "-"}").`,
-    );
-  }
-
-  function findPrescriptionOpenButton() {
-    const modalSearch = findPrescriptionSearch();
-    if (modalSearch) return { mode: "already-open", button: null };
-
-    const editButton =
-      findButtonByTexts(["Ubah Obat", "Ubah obat", "UBAH OBAT"]) ||
-      findButtonByTexts(["Ubah Resep", "Ubah resep"]);
-    if (editButton) return { mode: "edit", button: editButton };
-
-    const addButton = findButtonByTexts([
-      "Tambah Obat",
-      "Tambah obat",
-      "TAMBAH OBAT",
-    ]);
-    if (addButton) return { mode: "add", button: addButton };
-
-    return { mode: "none", button: null };
-  }
-
-  async function openOrReusePrescriptionForm() {
-    // Rule 1: If the "Buat Resep" form is already open, reuse it.
-    const alreadyOpen = findPrescriptionSearch();
-    if (alreadyOpen) {
-      LOG("Form resep sudah terbuka -> menggunakan form yang sedang aktif.");
-      return alreadyOpen;
-    }
-
-    // Rule 2: If the page shows "Ubah Obat" because a prescription already exists,
-    // open that editor and continue adding the requested items.
-    const status = findPrescriptionOpenButton();
-
-    if (status.mode === "edit" && status.button) {
-      LOG('Menemukan "Ubah Obat" -> membuka resep yang sudah ada.');
-      click(status.button);
-
-      return await waitFor(
-        () => findPrescriptionSearch(),
-        9000,
-        120,
-        "kolom Cari Obat setelah Ubah Obat",
-      );
-    }
-
-    // Rule 3: Otherwise open a new prescription form from "Tambah Obat".
-    if (status.mode === "add" && status.button) {
-      LOG('Menemukan "Tambah Obat" -> membuka form resep baru.');
-      click(status.button);
-
-      return await waitFor(
-        () => findPrescriptionSearch(),
-        9000,
-        120,
-        "kolom Cari Obat",
-      );
-    }
-
-    throw new Error(
-      "Tidak menemukan form resep, tombol Tambah Obat, maupun Ubah Obat.",
-    );
-  }
-
-  // Mengembalikan daftar obat yang dilewati karena SUDAH ADA di form resep.
-  async function addRecipeItems(medicines) {
-    await openOrReusePrescriptionForm();
-    const alreadyInRecipe = [];
-    const added = [];
-    const lowStock = [];
-
-    for (let i = 0; i < medicines.length; i++) {
-      const recipe = medicines[i];
-      const drug = buildDrugForItem(recipe.item, recipe);
-      // v9.4: obat yang sudah ada di resep (mis. dari "Ubah Obat" atau paket
-      // sebelumnya) tidak ditambahkan lagi. Dulu baris lama itulah yang ikut
-      // terdeteksi, sehingga isiannya tertimpa dan obat bisa dobel.
-      if (medicationRowFor(drug)) {
-        alreadyInRecipe.push(drug.key);
-        LOG(`Resep ${i + 1}/${medicines.length}: ${drug.key} sudah ada di resep -> dilewati`);
-        continue;
-      }
-      const search = await waitFor(
-        () => findPrescriptionSearch(),
-        7000,
-        100,
-        `Cari Obat untuk ${drug.key}`,
-      );
-
-      LOG(`Resep ${i + 1}/${medicines.length}: ${drug.key}`);
-      await selectTargetDrug(search, drug);
-      await configureMedicationRow(drug);
-      added.push(drug);
-      // v9.9: peringatan stok (resep tetap diisi; dokter yang memutuskan).
-      const row = medicationRowFor(drug);
-      const qtyInput = row && classifyRecipeInputs(row).total;
-      const stock = qtyInput && readStockNear(qtyInput);
-      if (stock != null && String(drug.total ?? "").trim() !== "" && Number(drug.total) > stock)
-        lowStock.push(`${drug.key.replace(/^BPJS -- /, "")} (butuh ${drug.total}, sisa ${stock})`);
-      await sleep(180);
-    }
-
-    const missing = added.filter((d) => !medicationRowFor(d)).map((d) => d.key);
-    if (missing.length)
-      throw new Error("Obat/item belum lengkap: " + missing.join(", "));
-
-    if (lowStock.length) {
-      notify(`Stok kurang, ganti obat/jumlah sebelum Simpan Resep: ${lowStock.join(", ")}.`, "error", 15000);
-    }
-    if (alreadyInRecipe.length) {
-      notify(
-        `Sudah ada di resep, tidak ditambahkan lagi (periksa dosisnya): ${alreadyInRecipe.map((k) => k.replace(/^BPJS -- /, "")).join(", ")}.`,
-        "warn",
-        12000,
-      );
-    }
-
-    // Sengaja TIDAK menekan tombol Simpan Resep otomatis.
-    // Modal tetap terbuka agar dokter dapat meninjau dan mengoreksi resep terlebih dahulu.
-    // Notifikasi "selesai" dikirim oleh pemanggil (satu notifikasi per proses).
-    LOG("Resep selesai diisi dan menunggu review manual sebelum Simpan Resep.");
-    return { alreadyInRecipe };
-  }
-
-  // Stok tersisa yang ditampilkan Klinik Pintar di bawah kolom jumlah ("Sisa : 6595").
-  // Dicari di pembungkus TERKECIL kolom itu yang memuat tepat satu tulisan "Sisa".
-  function parseStockText(raw) {
-    const m = String(raw || "").match(/sisa\s*:?\s*(-?[\d.,]+)/i);
-    if (!m) return null;
-    const n = Number(m[1].replace(/[.,](?=\d{3}\b)/g, "").replace(",", "."));
-    return Number.isFinite(n) ? n : null;
-  }
-  function readStockNear(input) {
-    let p = input?.parentElement;
-    for (let i = 0; i < 6 && p; i++, p = p.parentElement) {
-      const t = text(p);
-      const count = (t.match(/sisa\s*:/gi) || []).length;
-      if (count > 1) return null;
-      if (count === 1) return parseStockText(t);
-    }
-    return null;
-  }
-
-  // Form racikan = kotak dialog TERKECIL yang memuat kolom "nama racikan".
-  // Bukan sekadar teks "buat racikan": modal resep juga memuat tombol
-  // "Buat Racikan Baru", sehingga bisa salah pilih modal resep.
-  function findRacikanModal() {
-    const nameInputs = [
-      ...document.querySelectorAll('input:not([type="hidden"]), textarea'),
-    ].filter(
-      (i) =>
-        norm(i.getAttribute("placeholder") || "").includes("nama racikan") &&
-        visible(i),
-    );
-    const containers = [];
-    for (const input of nameInputs) {
-      const box = input.closest(
-        '.ant-modal-content, [role="dialog"], .ant-modal, .ant-drawer-content, [class*="modal"]',
-      );
-      if (box && visible(box)) containers.push(box);
-    }
-    if (containers.length) {
-      // Bila lebih dari satu (mis. animasi tutup), ambil yang paling atas di DOM.
-      return containers[containers.length - 1];
-    }
-
-    const candidates = [
-      ...document.querySelectorAll(
-        '[role="dialog"], .ant-modal-content, .ant-modal, [class*="modal"]',
-      ),
-    ]
-      .filter(visible)
-      .filter((m) => {
-        const t = norm(text(m));
-        return t.includes("nama racikan") || t.includes("instruksi racikan");
-      })
-      .sort((a, b) => text(a).length - text(b).length);
-    return candidates[0] || null;
-  }
-
-  // Input yang bisa diisi di form racikan, selain kolom Cari Obat.
-  function racikanEditableInputs(modal) {
-    return [...modal.querySelectorAll('input:not([type="hidden"])')]
-      .filter(visible)
-      .filter((i) => !i.disabled && !i.readOnly)
-      .filter(
-        (i) => !norm(i.getAttribute("placeholder") || "").includes("cari obat"),
-      );
-  }
-
-  // Pilih kolom jumlah untuk bahan `target` dari input yang BARU muncul setelah
-  // bahan dipilih. Bahan lain (`otherTargets`) tidak boleh ada di baris yang sama,
-  // supaya angka tidak pernah tertulis ke baris bahan sebelumnya.
-  function pickIngredientQuantityInput(newInputs, target, otherTargets) {
-    const wanted = norm(target);
-    const others = otherTargets.map(norm).filter((t) => t && t !== wanted);
-    const inOwnRow = newInputs.filter((input) => {
-      let p = input.parentElement;
-      for (let i = 0; i < 8 && p; i++, p = p.parentElement) {
-        const t = norm(text(p));
-        if (!t.includes(wanted)) continue;
-        return !others.some((o) => t.includes(o));
-      }
-      return false;
-    });
-    const pool = inOwnRow.length ? inOwnRow : newInputs.length <= 3 ? newInputs : [];
-    const numeric = pool.filter(
-      (i) =>
-        i.type === "number" ||
-        i.inputMode === "numeric" ||
-        i.inputMode === "decimal" ||
-        /^[\d.,]*$/.test(i.value || ""),
-    );
-    return numeric[0] || pool[0] || null;
-  }
-
-  function racikanValidationErrors(modal) {
-    return [
-      ...(modal?.querySelectorAll(
-        '.ant-form-item-explain-error, .ant-form-item-explain, [class*="error-message"], [class*="invalid-feedback"]',
-      ) || []),
-    ]
-      .filter(visible)
-      .map(text)
-      .filter(Boolean)
-      .join("; ");
-  }
-
-  function findRacikanSearch(modal) {
-    if (!modal) return null;
-    const inputs = [
-      ...modal.querySelectorAll('input:not([type="hidden"]), textarea'),
-    ].filter(visible);
-    return (
-      inputs.find(
-        (i) => norm(i.getAttribute("placeholder") || "") === "cari obat",
-      ) ||
-      inputs.find((i) =>
-        norm(i.getAttribute("placeholder") || "").includes("cari obat"),
-      ) ||
-      inputs[0] ||
-      null
-    );
-  }
-
-  function findRacikanRow(modal, target) {
-    const wanted = norm(target);
-    const nodes = [...modal.querySelectorAll("div, tr, li")]
-      .filter(visible)
-      .filter((el) => containsItemName(norm(text(el)), wanted))
-      .sort((a, b) => text(a).length - text(b).length);
-
-    for (const el of nodes) {
-      const inputs = [...el.querySelectorAll('input:not([type="hidden"])')]
-        .filter(visible)
-        .filter((i) => !i.disabled && !i.readOnly);
-      if (inputs.length) return el;
-    }
-    return nodes[0] || null;
-  }
-
-  function findRacikanQuantityInput(row) {
-    if (!row) return null;
-    const inputs = [...row.querySelectorAll('input:not([type="hidden"])')]
-      .filter(visible)
-      .filter((i) => !i.disabled && !i.readOnly)
-      .filter(
-        (i) => !norm(i.getAttribute("placeholder") || "").includes("cari obat"),
-      );
-
-    const numeric = inputs.filter(
-      (i) =>
-        i.type === "number" ||
-        i.inputMode === "numeric" ||
-        /^\d*$/.test(i.value || ""),
-    );
-
-    return numeric[0] || inputs[0] || null;
   }
 
   function findLabeledInputIn(root, labelText, occurrence = 0) {
@@ -3797,86 +2248,6 @@
     return [];
   }
 
-  function findRacikanDoseInputs(modal) {
-    if (!modal) return [];
-
-    const mr = modal.getBoundingClientRect();
-    const all = [...modal.querySelectorAll('input:not([type="hidden"])')]
-      .filter(visible)
-      .filter(
-        (i) =>
-          !i.disabled &&
-          !norm(i.getAttribute("placeholder") || "").includes("cari obat"),
-      )
-      .map((i) => ({ i, r: i.getBoundingClientRect() }))
-      .filter((x) => x.r.width > 0 && x.r.height > 0);
-
-    // In the actual Klinik Pintar racikan form, Dosis (Signa) is the only
-    // place with TWO small editable inputs on the same horizontal line.
-    // We deliberately do not depend on a "Dosis (Signa)" DOM label because
-    // its rendered text node/parent can vary across React builds.
-    const right = all
-      .filter((x) => x.r.left >= mr.left + mr.width * 0.52)
-      .filter((x) => x.r.width <= 90)
-      .sort((a, b) => a.r.top - b.r.top || a.r.left - b.r.left);
-
-    const groups = [];
-    for (const item of right) {
-      let g = groups.find((g) => Math.abs(g.y - item.r.top) <= 10);
-      if (!g) {
-        g = { y: item.r.top, items: [] };
-        groups.push(g);
-      }
-      g.items.push(item);
-    }
-    groups.forEach((g) => g.items.sort((a, b) => a.r.left - b.r.left));
-
-    // Ignore the top name/duration row. Dosis row is below it and has 2 inputs.
-    const pairGroups = groups
-      .filter((g) => g.items.length >= 2)
-      .filter((g) => g.y > mr.top + 90)
-      .sort((a, b) => a.y - b.y);
-
-    for (const g of pairGroups) {
-      for (let i = 0; i < g.items.length - 1; i++) {
-        const a = g.items[i],
-          b = g.items[i + 1];
-        const gap = b.r.left - (a.r.left + a.r.width);
-        if (gap >= 0 && gap <= 90) {
-          return [a.i, b.i];
-        }
-      }
-    }
-
-    // Fallback based on the exact visual corridor beneath the Dosis caption.
-    // Find any text node/container containing "Dosis (Signa)" just for Y anchor.
-    const labels = [...modal.querySelectorAll("label,span,div,p")]
-      .filter(visible)
-      .filter((el) => {
-        const t = norm(text(el));
-        return t === "dosis (signa)" || t.includes("dosis (signa)");
-      })
-      .sort((a, b) => text(a).length - text(b).length);
-
-    if (labels.length) {
-      const lr = labels[0].getBoundingClientRect();
-      const corridor = right
-        .filter((x) => x.r.top >= lr.bottom - 8 && x.r.top <= lr.bottom + 85)
-        .sort((a, b) => a.r.top - b.r.top || a.r.left - b.r.left);
-
-      for (let i = 0; i < corridor.length - 1; i++) {
-        const a = corridor[i],
-          b = corridor[i + 1];
-        const same =
-          Math.abs(a.r.top + a.r.height / 2 - (b.r.top + b.r.height / 2)) <= 16;
-        const gap = b.r.left - (a.r.left + a.r.width);
-        if (same && gap >= 0 && gap <= 90) return [a.i, b.i];
-      }
-    }
-
-    return [];
-  }
-
   function findFieldByPlaceholderIn(root, parts) {
     const needles = parts.map(norm);
     return (
@@ -3889,143 +2260,370 @@
     );
   }
 
+  // ---------------- DIALOG RESEP & RACIKAN (v10, vueform) ----------------
+  // Satu dialog Headless UI dipakai bergantian: judul "Buat Resep" (daftar obat)
+  // atau "Buat Racikan" (setelah tombol "Buat Racikan Baru"; kembali ke "Buat
+  // Resep" setelah Simpan Racikan / Batal).
+  function findPrescriptionModal() {
+    return (
+      findDialogByTitle(/^(?:buat|ubah) resep\b/i) ||
+      [...document.querySelectorAll('[role="dialog"]')]
+        .filter((d) => visible(d) && !isOwnUi(d))
+        .find((d) => d.querySelector('table[aria-label="Prescription list"]')) ||
+      null
+    );
+  }
+
+  function findRacikanModal() {
+    const byName = [...document.querySelectorAll('input[name="concoctions.concoction.name"]')]
+      .filter(visible)
+      .map((i) => i.closest('[role="dialog"]'))
+      .filter(Boolean);
+    if (byName.length) return byName[byName.length - 1];
+    return findDialogByTitle(/^buat racikan\b/i);
+  }
+
+  // Kolom "Cari Obat": pilihan yang bisa diketik dan BUKAN bagian baris obat yang
+  // sudah dipilih (baris obat memuat "Kode : ...").
+  function findItemSearchRoot(modal) {
+    if (!modal) return null;
+    return msRoots(modal).find((r) => msInput(r) && !/kode\s*:/i.test(text(r.closest("tr")))) || null;
+  }
+
+  // Nama obat di baris terpilih = pilihan TANPA kolom cari di baris itu.
+  function rowItemName(tr) {
+    const root = [...tr.querySelectorAll(MS_ROOT)].find((r) => !msInput(r));
+    return root ? msShown(root) : "";
+  }
+
+  function itemRows(modal) {
+    return modal ? [...modal.querySelectorAll("tbody tr")].filter((tr) => visible(tr) && rowItemName(tr)) : [];
+  }
+
+  // Baris obat `target` (nama persis dulu, lalu nama utuh; "ALPARA" ≠ "ALPARA FORTE").
+  function itemRowFor(modal, target) {
+    const wanted = norm(target);
+    const rows = itemRows(modal);
+    return (
+      rows.find((tr) => norm(rowItemName(tr)) === wanted) ||
+      rows.find((tr) => containsItemName(norm(rowItemName(tr)), wanted)) ||
+      null
+    );
+  }
+
+  function medicationRowFor(drug) {
+    return itemRowFor(findPrescriptionModal(), drug.key);
+  }
+
+  // Kolom isian baris obat yang terlihat. Klinik Pintar memberi data-mask:
+  // "H#*" = bilangan bulat (frekuensi, hari, jumlah), "#*.##" = dosis.
+  // Kolom teks tanpa mask = Instruksi "Lainnya (tulis)" / Satuan Pemakaian Lainnya.
+  function recipeRowFields(row) {
+    const plain = [...row.querySelectorAll('input:not([type="hidden"])')].filter(
+      (i) => visible(i) && !i.disabled && !i.readOnly && !i.closest(MS_ROOT),
+    );
+    const masked = plain.filter((i) => i.dataset?.mask);
+    const unmasked = plain.filter((i) => !i.dataset?.mask);
+    let freq, dose, days, total;
+    if (masked.length >= 4) {
+      const ints = masked.filter((i) => i.dataset.mask === "H#*");
+      dose = masked.find((i) => i.dataset.mask !== "H#*");
+      [freq, days] = ints;
+      total = ints.length >= 3 ? ints[ints.length - 1] : null;
+    } else {
+      const nums = plain.filter((i) => !/instruksi/i.test(i.getAttribute("placeholder") || ""));
+      [freq, dose, days] = nums;
+      total = nums.length >= 4 ? nums[nums.length - 1] : null;
+    }
+    const custom = unmasked.find((i) => /instruksi/i.test(i.getAttribute("placeholder") || "")) || null;
+    return { freq: freq || null, dose: dose || null, days: days || null, total: total || null, custom, unmasked };
+  }
+
+  // Kolom pilihan di baris obat: Satuan Pemakaian dan Instruksi (dikenali dari
+  // isi daftarnya; cadangan: urutan [Satuan Pemakaian, Instruksi, satuan jumlah]).
+  function recipeRowSelects(row) {
+    const roots = msRoots(row).filter((r) => msInput(r));
+    const has = (r, words) => {
+      const t = msOptionTexts(r);
+      return words.some((w) => t.includes(w));
+    };
+    let instr = roots.find((r) => has(r, ["setelah makan", "sebelum makan", "lainnya (tulis)"])) || null;
+    let usage = roots.find((r) => r !== instr && has(r, ["oles", "pulvis", "sendok teh", "tetes"])) || null;
+    if (!usage && !instr && roots.length >= 3) [usage, instr] = roots;
+    else if (!usage && roots.length >= 2 && roots[0] !== instr) usage = roots[0];
+    return { usage, instr };
+  }
+
+  function isMealPresetInstruction(instruction) {
+    const t = norm(instruction);
+    return t === "setelah makan" || t === "sebelum makan";
+  }
+
+  function instructionSelected(row, instruction) {
+    const want = norm(instruction);
+    if (!row || !want) return false;
+    const { instr } = recipeRowSelects(row);
+    const { custom } = recipeRowFields(row);
+    return (!!instr && norm(msShown(instr)) === want) || (!!custom && norm(custom.value) === want);
+  }
+
+  // Instruksi yang ada di daftar (Setelah Makan, Sebelum Makan, Malam hari, ...)
+  // dipilih langsung; lainnya lewat "Lainnya (tulis)" lalu teksnya diketik.
+  async function setInstruction(row, instruction, itemName) {
+    const want = norm(instruction);
+    if (!want || instructionSelected(row, instruction)) return;
+    const { instr } = recipeRowSelects(row);
+    const presets = instr ? msOptionTexts(instr) : [];
+    if (instr && (presets.includes(want) || (!presets.length && isMealPresetInstruction(instruction)))) {
+      await msChoose(instr, instruction, `Instruksi ${itemName}`);
+      LOG(`Instruksi ${itemName} OK: ${instruction}`);
+      return;
+    }
+    let custom = recipeRowFields(row).custom;
+    if (!custom) {
+      if (!instr) throw new Error(`Kolom Instruksi ${itemName} tidak ditemukan`);
+      await msPick(instr, (opts) => opts.find((o) => /^lainnya/.test(norm(text(o)))) || null, `Instruksi ${itemName}`);
+      custom = await waitFor(() => recipeRowFields(row).custom, 3500, 80, `kolom teks Instruksi ${itemName}`);
+    }
+    await setRecipeInputVerified(custom, instruction, `Instruksi ${itemName}`);
+    LOG(`Instruksi ${itemName} OK: ${instruction}`);
+  }
+
+  async function selectUnitUsagePreset(row, unitText, itemName) {
+    await msChoose(recipeRowSelects(row).usage, unitText, `Satuan Pemakaian ${itemName}`);
+    LOG(`Satuan Pemakaian ${itemName} OK: ${unitText}`);
+  }
+
+  // Bahan medis/alat: Satuan Pemakaian "Lainnya" lalu teks "PCS".
+  async function setUnitUsageForMedicalSupply(row, itemName) {
+    const isPcs = (i) => !/instruksi/i.test(i.getAttribute("placeholder") || "") && norm(i.value) === "pcs";
+    if (recipeRowFields(row).unmasked.some(isPcs)) return;
+    const { usage } = recipeRowSelects(row);
+    if (!usage) throw new Error(`Kolom Satuan Pemakaian ${itemName} tidak ditemukan`);
+    const before = new Set(recipeRowFields(row).unmasked);
+    await msPick(usage, msExact("Lainnya"), `Satuan Pemakaian ${itemName}`);
+    const input = await waitFor(
+      () =>
+        recipeRowFields(row).unmasked.find(
+          (i) => !before.has(i) && !/instruksi/i.test(i.getAttribute("placeholder") || ""),
+        ) || null,
+      3500,
+      80,
+      `kolom teks Satuan Pemakaian ${itemName}`,
+    );
+    await setRecipeInputVerified(input, "PCS", `Satuan Pemakaian ${itemName}`);
+    LOG(`Satuan Pemakaian ${itemName} OK: Lainnya -> PCS`);
+  }
+
+  async function configureMedicationRow(drug) {
+    const row = await waitFor(() => medicationRowFor(drug), 9000, 120, `baris obat ${drug.key}`);
+    const fields = recipeRowFields(row);
+    if (!fields.freq || !fields.dose || !fields.days || !fields.total) {
+      throw new Error(`Field resep ${drug.key} tidak lengkap: perlu Frekuensi, Dosis, Hari, dan Jumlah`);
+    }
+
+    await setRecipeInputVerified(fields.freq, drug.freq, "Frekuensi");
+    await setRecipeInputVerified(fields.dose, drug.dose, "Dosis");
+    if (String(drug.days ?? "").trim() !== "") {
+      await setRecipeInputVerified(fields.days, drug.days, "Jumlah hari");
+    }
+    if (String(drug.total ?? "").trim() !== "") {
+      await setRecipeInputVerified(fields.total, drug.total, "Jumlah obat");
+    }
+
+    // ===== SATUAN PEMAKAIAN =====
+    // Satuan yang ditulis di ITEMS (usageUnit) didahulukan; sirup = ml; salep = Oles;
+    // bahan medis = Lainnya + PCS; selain itu bawaan Klinik Pintar (mis. Tablet).
+    const explicitUsage = String(drug.usageUnit || "").trim();
+    if (explicitUsage && norm(explicitUsage) !== "oles") {
+      await selectUnitUsagePreset(row, explicitUsage, drug.key);
+    } else if (isSyrupMedication(drug)) {
+      await selectUnitUsagePreset(row, "ml", drug.key);
+    } else if (isTopicalMedication(drug)) {
+      await selectUnitUsagePreset(row, "Oles", drug.key);
+    } else if (isMedicalSupplyItem(drug)) {
+      await setUnitUsageForMedicalSupply(row, drug.key);
+    }
+
+    const instruction = drug.instruction || "SETELAH MAKAN";
+    await setInstruction(row, instruction, drug.key);
+
+    // ===== PEMERIKSAAN AKHIR =====
+    // Baris bisa dirender ulang; baca ulang kolomnya.
+    const now = recipeRowFields(medicationRowFor(drug) || row);
+    const same = (input, value) => String(input?.value || "").trim() === String(value);
+    if (!same(now.freq, drug.freq)) throw new Error(`Frekuensi ${drug.key} tidak sesuai`);
+    if (!same(now.dose, drug.dose)) throw new Error(`Dosis ${drug.key} tidak sesuai`);
+    if (String(drug.days ?? "").trim() !== "" && !same(now.days, drug.days))
+      throw new Error(`Jumlah hari ${drug.key} tidak sesuai`);
+    if (String(drug.total ?? "").trim() !== "") {
+      if (!same(now.total, drug.total)) await setRecipeInputVerified(now.total, drug.total, "Jumlah obat");
+      if (!same(now.total, drug.total))
+        throw new Error(`Jumlah obat ${drug.key} tidak sesuai: harus ${drug.total}`);
+    }
+    if (!instructionSelected(medicationRowFor(drug) || row, instruction)) {
+      throw new Error(`Instruksi ${drug.key} belum sesuai template: ${instruction}`);
+    }
+
+    LOG(
+      `RESEP OK ${drug.key}: ` +
+        `${drug.freq} x ${drug.dose}` +
+        (String(drug.days ?? "").trim() ? ` | ${drug.days} hari` : "") +
+        (String(drug.total ?? "").trim() ? ` | ${drug.total} ${drug.unit || "Tablet"}` : "") +
+        ` | ${instruction}`,
+    );
+  }
+
+  // Ketik kata kunci di Cari Obat, klik pilihan bernama `target`, tunggu barisnya.
+  async function addItemFromSearch(modal, item, where) {
+    for (let attempt = 1; attempt <= 2; attempt++) {
+      const existing = itemRowFor(modal, item.target);
+      if (existing) return existing;
+      const search = findItemSearchRoot(modal);
+      if (!search) throw new Error(`Kolom Cari Obat ${where} tidak ditemukan`);
+      await msPick(search, (opts) => pickBestItemOption(opts, item.target), item.target, {
+        typed: item.keyword,
+        timeout: 10000,
+      });
+      const row = await waitFor(() => itemRowFor(modal, item.target), 6000, 120, `baris ${item.target}`).catch(
+        () => null,
+      );
+      if (row) return row;
+    }
+    throw new Error(`Obat ${item.target} ditemukan tetapi belum masuk ke ${where}.`);
+  }
+
+  async function openOrReusePrescriptionForm() {
+    let modal = findPrescriptionModal();
+    if (!modal) {
+      if (findRacikanModal())
+        throw new Error("Form racikan masih terbuka. Simpan atau tutup dulu, lalu jalankan lagi.");
+      const btn =
+        document.getElementById("rekam-medis_resume_rme_tambah-obat_click") ||
+        findButtonByTexts(["Ubah Obat", "Tambah Obat", "Ubah Resep"]);
+      if (!btn || !visible(btn)) throw new Error("Tombol Tambah Obat / Ubah Obat tidak ditemukan.");
+      LOG(`Membuka form resep lewat "${text(btn)}".`);
+      click(btn);
+      modal = await waitFor(() => findPrescriptionModal(), 9000, 120, "form Buat Resep");
+    }
+    // Obat yang sudah ada baru tampil setelah dimuat; tanpa menunggu, obat bisa dobel.
+    if (!(await waitDialogReady(modal, "daftar obat & resep"))) {
+      throw new Error(
+        'Klinik Pintar belum selesai memuat resep ("Sedang Memeriksa List Obat & Resep"). Tunggu sebentar lalu jalankan lagi.',
+      );
+    }
+    await waitFor(() => findItemSearchRoot(modal), 5000, 120, "kolom Cari Obat");
+    return modal;
+  }
+
+  // Mengembalikan daftar obat yang dilewati karena SUDAH ADA di form resep.
+  async function addRecipeItems(medicines) {
+    const modal = await openOrReusePrescriptionForm();
+    const alreadyInRecipe = [];
+    const added = [];
+    const lowStock = [];
+
+    for (let i = 0; i < medicines.length; i++) {
+      const recipe = medicines[i];
+      const drug = buildDrugForItem(recipe.item, recipe);
+      // Obat yang sudah ada di resep (Ubah Obat / paket sebelumnya) tidak ditambah lagi.
+      if (itemRowFor(modal, drug.key)) {
+        alreadyInRecipe.push(drug.key);
+        LOG(`Resep ${i + 1}/${medicines.length}: ${drug.key} sudah ada di resep -> dilewati`);
+        continue;
+      }
+      LOG(`Resep ${i + 1}/${medicines.length}: ${drug.key}`);
+      await addItemFromSearch(modal, { target: drug.key, keyword: drug.search }, "resep");
+      await configureMedicationRow(drug);
+      added.push(drug);
+      // Peringatan stok (resep tetap diisi; dokter yang memutuskan).
+      const qtyInput = recipeRowFields(medicationRowFor(drug)).total;
+      const stock = qtyInput && readStockNear(qtyInput);
+      if (stock != null && String(drug.total ?? "").trim() !== "" && Number(drug.total) > stock)
+        lowStock.push(`${drug.key.replace(/^BPJS -- /, "")} (butuh ${drug.total}, sisa ${stock})`);
+      await sleep(180);
+    }
+
+    const missing = added.filter((d) => !medicationRowFor(d)).map((d) => d.key);
+    if (missing.length) throw new Error("Obat/item belum lengkap: " + missing.join(", "));
+
+    if (lowStock.length) {
+      notify(`Stok kurang, ganti obat/jumlah sebelum Simpan Resep: ${lowStock.join(", ")}.`, "error", 15000);
+    }
+    if (alreadyInRecipe.length) {
+      notify(
+        `Sudah ada di resep, tidak ditambahkan lagi (periksa dosisnya): ${alreadyInRecipe.map((k) => k.replace(/^BPJS -- /, "")).join(", ")}.`,
+        "warn",
+        12000,
+      );
+    }
+
+    // Sengaja TIDAK menekan Simpan Resep: dokter meninjau resep terlebih dahulu.
+    LOG("Resep selesai diisi dan menunggu review manual sebelum Simpan Resep.");
+    return { alreadyInRecipe };
+  }
+
+  // Stok tersisa yang ditampilkan Klinik Pintar di bawah kolom jumlah ("Sisa : 6595").
+  // Dicari di pembungkus TERKECIL kolom itu yang memuat tepat satu tulisan "Sisa".
+  function parseStockText(raw) {
+    const m = String(raw || "").match(/sisa\s*:?\s*(-?[\d.,]+)/i);
+    if (!m) return null;
+    const n = Number(m[1].replace(/[.,](?=\d{3}\b)/g, "").replace(",", "."));
+    return Number.isFinite(n) ? n : null;
+  }
+
+  function readStockNear(input) {
+    let p = input?.parentElement;
+    for (let i = 0; i < 6 && p; i++, p = p.parentElement) {
+      const t = text(p);
+      const count = (t.match(/sisa\s*:/gi) || []).length;
+      if (count > 1) return null;
+      if (count === 1) return parseStockText(t);
+    }
+    return null;
+  }
+
+  function racikanValidationErrors(modal) {
+    return [...(modal?.querySelectorAll('p[id$="-error"], [role="alert"]') || [])]
+      .filter(visible)
+      .map(text)
+      .filter(Boolean)
+      .join("; ");
+  }
+
   async function openRacikanForm() {
-    // Racikan sebelumnya harus sudah tertutup. Bila masih terbuka, racikan baru
-    // akan tercampur ke form lama (penyebab angka bahan salah di v9.2 ke bawah).
-    const stillOpen = await waitFor(
+    // Racikan sebelumnya harus sudah tertutup, supaya bahan tidak tercampur.
+    const closed = await waitFor(
       () => (findRacikanModal() ? null : true),
       6000,
       150,
       "form racikan sebelumnya tertutup",
     ).catch(() => false);
-    if (!stillOpen) {
-      throw new Error(
-        "Form racikan sebelumnya masih terbuka. Simpan atau tutup dulu, lalu jalankan lagi.",
-      );
+    if (!closed) {
+      throw new Error("Form racikan sebelumnya masih terbuka. Simpan atau tutup dulu, lalu jalankan lagi.");
     }
-
-    await openOrReusePrescriptionForm();
-
-    const prescriptionModal = findPrescriptionModal() || document;
-    const racikanButton = await waitFor(
-      () =>
-        findButtonByTexts(
-          ["Buat Racikan Baru", "Buat Racikan", "Buat racikan baru"],
-          prescriptionModal,
-        ) ||
-        findButtonByTexts([
-          "Buat Racikan Baru",
-          "Buat Racikan",
-          "Buat racikan baru",
-        ]),
+    const prescription = await openOrReusePrescriptionForm();
+    const btn = await waitFor(
+      () => findButtonByTexts(["Buat Racikan Baru", "Buat Racikan"], prescription),
       5000,
       100,
       "tombol Buat Racikan Baru",
     );
-
-    click(racikanButton);
-
-    return await waitFor(
-      () => findRacikanModal(),
-      7000,
-      100,
-      "form Buat Racikan",
-    );
-  }
-
-  function findRacikanTargetOption(modal, target) {
-    const wanted = norm(target);
-    if (!modal) return null;
-
-    // Only inspect currently visible options associated with THIS racikan modal.
-    // This prevents stale options from another dropdown/modal from being chosen.
-    const options = [
-      ...modal.querySelectorAll(
-        '[role="option"], .ant-select-item-option, .ant-select-item, li',
-      ),
-    ].filter(visible);
-
-    // Dropdown Ant Design kadang dirender di luar modal (portal di <body>).
-    for (const root of visibleSelectDropdowns()) {
-      options.push(
-        ...[
-          ...root.querySelectorAll(
-            '[role="option"], .ant-select-item-option, .ant-select-item',
-          ),
-        ].filter(visible),
-      );
-    }
-
-    // Utamakan nama persis, lalu nama utuh (bukan "ALPARA FORTE" untuk "ALPARA").
-    return pickBestItemOption(options, wanted);
+    click(btn);
+    return waitFor(() => findRacikanModal(), 7000, 100, "form Buat Racikan");
   }
 
   // Pilih satu bahan racikan dan isi jumlahnya. Mengembalikan kolom jumlahnya.
-  async function selectRacikanIngredient(modal, ingredient, otherTargets = []) {
+  async function selectRacikanIngredient(modal, ingredient) {
     const item = ITEMS[ingredient.item];
-    if (!item)
-      throw new Error(`Bahan racikan tidak ditemukan: ${ingredient.item}`);
-
-    const search = await waitFor(
-      () => findRacikanSearch(modal),
-      5000,
-      80,
-      `Cari Obat racikan ${item.target}`,
+    if (!item) throw new Error(`Bahan racikan tidak ditemukan: ${ingredient.item}`);
+    const row = await addItemFromSearch(modal, item, "racikan");
+    const qty = [...row.querySelectorAll('input:not([type="hidden"])')].find(
+      (i) => visible(i) && !i.disabled && !i.readOnly && !i.closest(MS_ROOT),
     );
-
-    // Catat input yang sudah ada; baris bahan baru = input yang muncul sesudahnya.
-    const before = new Set(racikanEditableInputs(modal));
-    const newInputs = () =>
-      racikanEditableInputs(modal).filter((i) => !before.has(i));
-    const waitNewRow = (ms) =>
-      waitFor(() => (newInputs().length ? true : null), ms, 100, "baris bahan").catch(
-        () => false,
-      );
-
-    try {
-      search.focus();
-    } catch (_) {}
-    nativeSetValue(search, "");
-    await sleep(150);
-    nativeSetValue(search, item.keyword);
-    await sleep(450);
-
-    let option = await waitFor(
-      () => findRacikanTargetOption(modal, item.target),
-      10000,
-      100,
-      `pilihan obat ${item.target} di daftar racikan`,
-    );
-    dispatchOptionSelection(option);
-    let added = await waitNewRow(2500);
-
-    // Cadangan 1: Enter, hanya bila opsi target sedang disorot (v9.4; dulu
-    // ArrowDown+Enter bisa memasukkan bahan LAIN ke racikan).
-    if (!added) {
-      option = findRacikanTargetOption(modal, item.target);
-      if (option && (await pressEnterOnOption(search, option)))
-        added = await waitNewRow(2000);
-    }
-    // Cadangan 2: klik pembungkus opsi.
-    if (!added) {
-      option = findRacikanTargetOption(modal, item.target);
-      if (option) {
-        click(option);
-        added = await waitNewRow(2000);
-      }
-    }
-    if (!added) {
-      throw new Error(`Obat ${item.target} ditemukan tetapi belum masuk ke racikan.`);
-    }
-    await sleep(200); // biarkan React selesai merender baris baru
-
-    const qty =
-      pickIngredientQuantityInput(newInputs(), item.target, otherTargets) ||
-      findRacikanQuantityInput(findRacikanRow(modal, item.target));
     if (!qty) throw new Error(`Kolom jumlah ${item.target} tidak ditemukan.`);
-
     await setRecipeInputVerified(qty, ingredient.quantity, `Jumlah ${item.target}`);
-    // v9.9: stok kurang = Simpan Racikan pasti ditolak (kolom jumlah merah).
+    // Stok kurang = Simpan Racikan pasti ditolak.
     const stock = readStockNear(qty);
     if (stock != null && Number(ingredient.quantity) > stock) {
       throw new Error(
@@ -4036,165 +2634,46 @@
     return qty;
   }
 
-  // Mengisi header racikan. Mengembalikan daftar kolom yang diisi + cek satuan,
+  // Mengisi header racikan. Mengembalikan kolom yang diisi + cek satuan,
   // untuk diperiksa ulang sebelum Simpan Racikan.
   async function setRacikanHeaderFields(modal, tpl) {
     const filled = [];
     const fill = async (input, value, label) => {
+      if (!input) throw new Error(`Kolom ${label} tidak ditemukan`);
       await setRecipeInputVerified(input, value, label);
       filled.push({ input, value: String(value), label });
     };
-    const name = await waitFor(
-      () => findFieldByPlaceholderIn(modal, ["Masukkan nama racikan"]),
-      3500,
-      80,
+    const named = (name) => [...modal.querySelectorAll(`input[name="${name}"]`)].find(visible) || null;
+    const signa = findLabeledInputIn(modal, "Dosis (Signa)");
+
+    await fill(
+      named("concoctions.concoction.name") || findFieldByPlaceholderIn(modal, ["Masukkan nama racikan"]),
+      tpl.name,
       "Nama Racikan",
     );
-    await fill(name, tpl.name, "Nama Racikan");
-
-    // findLabeledInputIn mengembalikan [] bila tidak ketemu ([] bernilai truthy).
-    let durationCandidates = findLabeledInputIn(modal, "Durasi (Hari)");
-    if (!durationCandidates.length)
-      durationCandidates = findLabeledInputIn(modal, "Durasi");
-    const duration = durationCandidates?.[0];
-    if (!duration) throw new Error("Kolom Durasi (Hari) tidak ditemukan");
-    await fill(duration, tpl.duration, "Durasi racikan");
-
-    const doseInputs = await waitFor(
-      () => {
-        const found = findRacikanDoseInputs(modal);
-        return found.length >= 2 ? found : null;
-      },
-      3500,
-      80,
-      "dua input Dosis (Signa) racikan",
-    );
-
-    // Screenshot-confirmed order: FREQUENCY × AMOUNT, e.g. 3 × 1.
     await fill(
-      doseInputs[0],
-      tpl.doseFreq,
-      "Dosis frekuensi racikan",
+      named("concoctions.signa.total_day") || findLabeledInputIn(modal, "Durasi (Hari)")[0],
+      tpl.duration,
+      "Durasi racikan",
     );
-    await fill(
-      doseInputs[1],
-      tpl.doseAmount,
-      "Dosis jumlah racikan",
-    );
+    // Dosis (Signa): FREKUENSI × JUMLAH, mis. 3 × 1.
+    await fill(named("concoctions.signa.per_day") || signa[0], tpl.doseFreq, "Dosis frekuensi racikan");
+    await fill(named("concoctions.signa.dose") || signa[1], tpl.doseAmount, "Dosis jumlah racikan");
 
-    if (
-      String(doseInputs[0].value || "").trim() !== String(tpl.doseFreq) ||
-      String(doseInputs[1].value || "").trim() !== String(tpl.doseAmount)
-    ) {
-      throw new Error(
-        `Dosis (Signa) belum sesuai: target ${tpl.doseFreq} x ${tpl.doseAmount}`,
-      );
-    }
-
-    // SATUAN PEMAKAIAN (Pulvis / Oles / Ungt)
-    // v9.3: dulu status "sudah dipilih" disimpan sebagai properti di elemen modal.
-    // Karena Klinik Pintar memakai ulang elemen modal, racikan ke-2 dan ke-3
-    // melewati langkah ini sehingga Satuan Pemakaian kosong. Sekarang status
-    // dibaca dari tampilan setiap kali, dengan satu kali coba ulang.
+    // SATUAN PEMAKAIAN (Pulvis / Oles), dibaca ulang dari tampilan setiap kali.
     const unitLabel = tpl.unit || "Pulvis";
-    const desiredUnit = norm(unitLabel);
-    const wantOles = desiredUnit.includes("oles");
-    const wantUngt = desiredUnit === "ungt" || desiredUnit.includes("unguent");
-    const unitMatches = (t) =>
-      wantOles
-        ? t === "oles" || t.startsWith("oles ")
-        : wantUngt
-          ? t.includes("unguent") || t.includes("ungt")
-          : t === "pulvis" || t.startsWith("pulvis ");
+    const unitRoot = () => msRootByLabel("Satuan Pemakaian", modal);
+    const unitSelected = () => norm(msShown(unitRoot())) === norm(unitLabel);
+    await msChoose(unitRoot(), unitLabel, "Satuan Pemakaian racikan");
 
-    const unitBox = () => {
-      const control = findUnitUsageControl(modal);
-      return control?.closest?.(".ant-select") || control?.parentElement || control;
-    };
-    const unitSelected = () => {
-      const box = unitBox();
-      if (!box) return false;
-      const shown = [
-        ...box.querySelectorAll(
-          '.ant-select-selection-item, .ant-select-selection-selected-value, [class*="selection-item"], [class*="single-value"]',
-        ),
-      ]
-        .map((el) => `${text(el)} ${el.getAttribute("title") || ""}`)
-        .join(" ");
-      const input = getEditableInput(box);
-      return unitMatches(norm(shown)) || unitMatches(norm(input?.value || "")) ||
-        norm(shown).split(/\s+/).some((w) => unitMatches(w));
-    };
-    const pickUnit = async () => {
-      const control = await waitFor(
-        () => findUnitUsageControl(modal),
-        3500,
-        60,
-        "kolom Satuan Pemakaian racikan",
-      );
-      dispatchPointerClick(control);
-      try {
-        control.focus?.();
-      } catch (_) {}
-      await sleep(200);
-      const option = await waitFor(
-        () =>
-          [
-            ...document.querySelectorAll(
-              '[role="option"],.ant-select-item-option,.rc-select-item-option,.ant-select-item',
-            ),
-          ]
-            .filter(visible)
-            .filter((el) => !isDangerousDeleteElement(el))
-            .find((el) => unitMatches(norm(text(el)))) || null,
-        3500,
-        60,
-        `opsi Satuan Pemakaian ${unitLabel}`,
-      );
-      try {
-        option.scrollIntoView({ block: "nearest", behavior: "auto" });
-      } catch (_) {}
-      dispatchPointerClick(option);
-      return waitFor(() => unitSelected() || null, 1800, 100, "Satuan Pemakaian")
-        .then(() => true)
-        .catch(() => false);
-    };
-
-    if (!unitSelected()) {
-      let ok = await pickUnit();
-      if (!ok) {
-        // Coba ulang sekali; tutup dropdown yang mungkin masih terbuka dulu.
-        keypress(document.activeElement || document.body, "Escape", "Escape", 27);
-        await sleep(250);
-        if (!unitSelected()) ok = await pickUnit();
-      }
-      LOG(
-        ok
-          ? `Satuan Pemakaian racikan OK: ${unitLabel}`
-          : `Satuan Pemakaian ${unitLabel} belum terbaca; diperiksa lagi saat simpan`,
-      );
-    }
-
-    const instruksi = await waitFor(
-      () => findFieldByPlaceholderIn(modal, ["Masukkan Instruksi Pemakaian"]),
-      3500,
-      80,
-      "Instruksi Pemakaian racikan",
-    );
     await fill(
-      instruksi,
+      named("concoctions.signa.instruction_for_use") ||
+        findFieldByPlaceholderIn(modal, ["Masukkan Instruksi Pemakaian"]),
       tpl.instruction,
       "Instruksi Pemakaian racikan",
     );
-
-    const instruksiRacikan = await waitFor(
-      () => findFieldByPlaceholderIn(modal, ["Masukkan Instruksi Racikan"]),
-      3500,
-      80,
-      "Instruksi Racikan",
-    );
     await fill(
-      instruksiRacikan,
+      named("concoctions.concoction.instruction") || findFieldByPlaceholderIn(modal, ["Masukkan Instruksi Racikan"]),
       tpl.compoundInstruction,
       "Instruksi Racikan",
     );
@@ -4206,11 +2685,10 @@
   async function addRacikan(tpl) {
     const modal = await openRacikanForm();
     const title = tpl.title || tpl.name || "racikan";
-    const targets = tpl.ingredients.map((i) => ITEMS[i.item]?.target || i.item);
 
     const checks = [];
     for (const ingredient of tpl.ingredients) {
-      const input = await selectRacikanIngredient(modal, ingredient, targets);
+      const input = await selectRacikanIngredient(modal, ingredient);
       checks.push({
         input,
         value: String(ingredient.quantity),
@@ -4222,8 +2700,8 @@
     const header = await setRacikanHeaderFields(modal, tpl);
     checks.push(...header.filled);
 
-    // Periksa ulang SEMUA kolom tepat sebelum simpan: React bisa mengosongkan
-    // kolom yang diisi lebih awal saat baris lain ditambahkan.
+    // Periksa ulang SEMUA kolom tepat sebelum simpan: kolom yang diisi lebih awal
+    // bisa kosong lagi saat baris lain ditambahkan.
     const wrong = [];
     for (const c of checks) {
       if (!c.input?.isConnected) {
@@ -4244,15 +2722,25 @@
       );
     }
 
+    // Tombol Simpan Racikan baru aktif bila semua kolom wajib sudah valid.
     const save = await waitFor(
-      () => findButtonByTexts(["Simpan Racikan", "Simpan racikan"], modal),
-      4000,
-      80,
-      "Simpan Racikan",
-    );
+      () => {
+        const b = findButtonByTexts(["Simpan Racikan"], modal);
+        return b && !b.disabled ? b : null;
+      },
+      5000,
+      100,
+      "tombol Simpan Racikan aktif",
+    ).catch(() => null);
+    if (!save) {
+      const errors = racikanValidationErrors(modal);
+      throw new Error(
+        `${title} belum disimpan: tombol Simpan Racikan belum aktif${errors ? ` (${errors})` : ""}. Periksa form racikan.`,
+      );
+    }
     click(save);
 
-    // Pastikan form benar-benar tertutup (= tersimpan) sebelum racikan berikutnya.
+    // Pastikan form racikan tertutup (= kembali ke Buat Resep) sebelum racikan berikutnya.
     const closed = await waitFor(
       () => (findRacikanModal() ? null : true),
       8000,
@@ -4261,13 +2749,12 @@
     ).catch(() => false);
     if (!closed) {
       const errors = racikanValidationErrors(modal);
-      throw new Error(
-        `${title} belum tersimpan${errors ? `: ${errors}` : ""}. Periksa form racikan yang masih terbuka.`,
-      );
+      throw new Error(`${title} belum tersimpan${errors ? `: ${errors}` : ""}. Periksa form racikan yang masih terbuka.`);
     }
     await sleep(400);
     LOG(`Racikan ${title} berhasil disimpan`);
   }
+
 
   // ============================================================
   // 5. DATA PASIEN — umur dari identitas, BB, pencarian template BB
@@ -4517,10 +3004,13 @@
   }
 
   // Isi teks kolom form berlabel `label`, "" bila tidak ada.
-  // v9.4: selain input/textarea juga editor teks (contenteditable) dan pilihan
-  // bertipe tag (Ant Select), karena Keluhan Utama bisa dirender sebagai salah satunya.
+  // v10: Keluhan Utama / Anamnesa / Diagnosa dibaca dari id kolomnya (#tf_complaint,
+  // #tf_anamese, #tf_diagnosis); label hanya cadangan.
+  const FIELD_IDS = { "keluhan utama": "tf_complaint", anamnesa: "tf_anamese", diagnosa: "tf_diagnosis" };
   function readFieldText(label) {
     try {
+      const byId = document.getElementById(FIELD_IDS[norm(label)] || "");
+      if (byId && "value" in byId) return String(byId.value || "").trim();
       const control =
         nearbyControlFromLabel(label) || findInputByPlaceholder([label]);
       const input = getEditableInput(control);
@@ -4534,18 +3024,11 @@
           // Berhenti di kontrol TERDEKAT agar tidak membaca kolom lain di bawahnya.
           const controls = [
             ...p.querySelectorAll(
-              'textarea, input:not([type="hidden"]), [contenteditable="true"], .ant-select-selection-item',
+              'textarea, input:not([type="hidden"]), [contenteditable="true"]',
             ),
           ].filter((e) => visible(e) && !isOwnUi(e));
           if (!controls.length) continue;
           const first = controls[0];
-          if (first.matches(".ant-select-selection-item")) {
-            return controls
-              .filter((e) => e.matches(".ant-select-selection-item"))
-              .map((e) => text(e))
-              .filter(Boolean)
-              .join(", ");
-          }
           return String(
             first.value ?? first.innerText ?? first.textContent ?? "",
           ).trim();
@@ -5796,10 +4279,8 @@
         await setDiagnosisAndIcd();
       } else {
         // Resume: isi Prognosa bila kolomnya ada, selain itu dilewati.
-        const prog = nearbyControlFromLabel("Prognosa");
-        if (prog) {
-          await chooseFromDropdown(prog, TEMPLATE.prognosis, "exact");
-          LOG("Prognosa Resume OK");
+        if (fieldRoot("dd_prognosis", "Prognosa")) {
+          await setPrognosis();
         } else {
           LOG("Prognosa Resume tidak tersedia -> dilewati");
         }
