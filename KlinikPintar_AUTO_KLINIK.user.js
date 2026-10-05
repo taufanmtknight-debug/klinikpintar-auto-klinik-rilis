@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Klinik Pintar - AUTO KLINIK
 // @namespace    klinikpintar-auto
-// @version      10.0.5
+// @version      10.0.6
 // @description  AUTO KLINIK untuk os.klinikpintar.id — ISPA Dewasa, Resume, Resep Manual, Paket Resep Golongan. Tidak pernah menekan Simpan otomatis.
 // @author       taufanmtknight-debug
 // @match        https://os.klinikpintar.id/*
@@ -34,7 +34,7 @@
 
   // Versi diambil dari header (GM_info) agar label launcher tidak pernah beda
   // dengan @version. Nilai cadangan WAJIB sama dengan @version (dicek oleh test).
-  const SCRIPT_VERSION_FALLBACK = "10.0.5";
+  const SCRIPT_VERSION_FALLBACK = "10.0.6";
   const VERSION =
     (typeof GM_info !== "undefined" && GM_info?.script?.version) ||
     SCRIPT_VERSION_FALLBACK;
@@ -351,10 +351,10 @@
   const CHILD_SYRUP_SERIES = [
     // Domperidone syrup: tiap 5 kg -> +1 ml, 3x sehari sebelum makan, 3 hari, 1 botol.
     { prefix: "MUAL_MUNTAH_SYRUP_ANAK_", title: "MUAL MUNTAH SYRUP", step: 5, maxKg: 50, item: "DOMPERIDONE_SYRUP", freq: "3", days: "3", total: "1", instruction: "SEBELUM MAKAN" },
-    // Amoxicillin syrup: tiap 2,5 kg -> +1 ml, 3x sehari setelah makan.
-    { prefix: "ANTIBIOTIK_SYRUP_ANAK_", title: "ANTIBIOTIK SYRUP", step: 2.5, maxKg: 50, item: "AMOXICILLIN_SYRUP", freq: "3", days: "", total: "", instruction: "SETELAH MAKAN" },
+    // Amoxicillin syrup: tiap 2,5 kg -> +1 ml, 3x sehari setelah makan, 1 botol (v10.0.6).
+    { prefix: "ANTIBIOTIK_SYRUP_ANAK_", title: "ANTIBIOTIK SYRUP", step: 2.5, maxKg: 50, item: "AMOXICILLIN_SYRUP", freq: "3", days: "", total: "1", instruction: "SETELAH MAKAN" },
     // Cefadroxil syrup: pola dosis sama dengan Amoxicillin syrup, tetapi 2x sehari.
-    { prefix: "CEFADROXIL_SYRUP_ANAK_", title: "CEFADROXIL SYRUP", step: 2.5, maxKg: 50, item: "CEFADROXIL_SYRUP", freq: "2", days: "", total: "", instruction: "SETELAH MAKAN" },
+    { prefix: "CEFADROXIL_SYRUP_ANAK_", title: "CEFADROXIL SYRUP", step: 2.5, maxKg: 50, item: "CEFADROXIL_SYRUP", freq: "2", days: "", total: "1", instruction: "SETELAH MAKAN" },
   ];
 
   for (const s of CHILD_SYRUP_SERIES) {
@@ -4498,8 +4498,8 @@
   }
 
   const MAIN_MENU = [
-    { id: "auto-klinik-resume", label: "📋 RESUME", run: () => runTemplate("resume") },
     { id: "auto-klinik-resume-dx", label: "🧪 RESUME + DIAGNOSIS + RESEP", run: () => runTemplate("resume-diagnosis") },
+    { id: "auto-klinik-resume", label: "📋 RESUME", run: () => runTemplate("resume") },
     { id: "auto-klinik-paket-obat", label: "💊 PAKET RESEP GOLONGAN", run: () => renderMedicationGroupPackagePicker() },
   ];
 
