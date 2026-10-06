@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Klinik Pintar - AUTO KLINIK
 // @namespace    klinikpintar-auto
-// @version      10.0.8
+// @version      10.0.9
 // @description  AUTO KLINIK untuk os.klinikpintar.id — RESUME + DIAGNOSIS + RESEP, Resume, Paket Resep Golongan. Tidak pernah menekan Simpan otomatis.
 // @author       taufanmtknight-debug
 // @match        https://os.klinikpintar.id/*
@@ -34,7 +34,7 @@
 
   // Versi diambil dari header (GM_info) agar label launcher tidak pernah beda
   // dengan @version. Nilai cadangan WAJIB sama dengan @version (dicek oleh test).
-  const SCRIPT_VERSION_FALLBACK = "10.0.8";
+  const SCRIPT_VERSION_FALLBACK = "10.0.9";
   const VERSION =
     (typeof GM_info !== "undefined" && GM_info?.script?.version) ||
     SCRIPT_VERSION_FALLBACK;
@@ -376,6 +376,8 @@
   const CHILD_PUYER_SERIES = [
     { prefix: "ISPA_ANAK_", title: "RACIKAN ISPA", name: "puyer batuk", maxKg: 50, duration: "3", doseFreq: "3", instruction: "setelah makan", items: ["GUAIFENESIN_100", "CTM_4", "DEXAMETHASONE_05"] },
     { prefix: "DEMAM_ANAK_", title: "DEMAM ANAK", name: "puyer demam", maxKg: 50, duration: "3", doseFreq: "3", instruction: "setelah makan", items: ["PARACETAMOL_500"] },
+    // v10.0.9 (permintaan dokter): Ibuprofen 400 mg, tiap 7 kg -> +1 tablet, buat 10 puyer, 3x sehari.
+    { prefix: "IBUPROFEN_ANAK_", title: "IBUPROFEN ANAK", name: "puyer ibuprofen", step: 7, maxKg: 49, duration: "3", doseFreq: "3", instruction: "setelah makan", items: ["IBUPROFEN_400"] },
     { prefix: "ANTIBIOTIK_ANAK_", title: "ANTIBIOTIK ANAK", name: "puyer antibiotik", maxKg: 50, duration: "3", doseFreq: "3", instruction: "setelah makan", items: ["AMOXICILLIN_500"] },
     { prefix: "MUAL_MUNTAH_ANAK_", title: "MUAL MUNTAH ANAK", name: "puyer mual muntah", maxKg: 50, duration: "3", doseFreq: "3", instruction: "setelah makan", items: ["DOMPERIDONE_10"] },
     // Cefadroxil puyer: pola jumlah tablet sama seperti Amoxicillin, tetapi 2x sehari.
@@ -390,7 +392,7 @@
 
   const RACIKAN_TEMPLATES = {};
   for (const s of CHILD_PUYER_SERIES) {
-    for (const band of weightBands(5, s.maxKg)) {
+    for (const band of weightBands(s.step || 5, s.maxKg)) {
       RACIKAN_TEMPLATES[s.prefix + bandKey(band)] = {
         title: `${s.title} ${bandLabel(band)}`,
         band,
@@ -514,6 +516,14 @@
             total: "10",
             instruction: "SETELAH MAKAN",
           },
+        },
+        {
+          key: "IBUPROFEN_ANAK",
+          label: "Racikan Ibuprofen — Anak (BB)",
+          type: "weight-racikan",
+          prefix: "IBUPROFEN_ANAK_",
+          title: "RACIKAN IBUPROFEN ANAK",
+          population: "child",
         },
         {
           key: "DICLOFENAC_50",
@@ -1029,7 +1039,9 @@
     {
       label: "Batuk / pilek",
       pattern: /batuk|pilek|\bbat?pil\b|\bflu\b|influenza|bersin|hidung\s+(?:tersumbat|mampet|meler)|ingus|\bispa\b|common cold/,
-      adult: ["ALPARA_DEWASA", "DEXAMETHASONE_05"], // = template ISPA Dewasa
+      // v10.0.9 (permintaan dokter): batuk dewasa = Paracetamol + Ambroxol + Cetirizine
+      // (bukan Alpara); anak = racikan Guaifenesin + CTM + Dexamethasone (ISPA Anak).
+      adult: ["PARACETAMOL_DEWASA", "AMBROXOL_30_DEWASA", "CETIRIZINE_10_DEWASA"], // = diagnosis ISPA
       child: ["ISPA_ANAK"],
     },
     {
@@ -1223,7 +1235,7 @@
   // Dyspepsia, Myalgia, LBP, Dermatitis, dst.).
   const DIAGNOSIS_TEMPLATES = [
     { key: "ISPA", label: "ISPA", icd: ["J06"], query: "Acute upper respiratory infections of multiple and unspecified sites",
-      adult: ["ALPARA_DEWASA", "DEXAMETHASONE_05"], child: ["ISPA_ANAK"] },
+      adult: ["PARACETAMOL_DEWASA", "AMBROXOL_30_DEWASA", "CETIRIZINE_10_DEWASA"], child: ["ISPA_ANAK"] },
     { key: "FARINGITIS", label: "Faringitis akut", icd: ["J02.9", "J02"], query: "acute pharyngitis",
       adult: ["ALPARA_DEWASA", "DEXAMETHASONE_05"], child: ["ISPA_ANAK"] },
     { key: "TONSILITIS", label: "Tonsilitis akut", icd: ["J03.9", "J03"], query: "acute tonsillitis",
@@ -2015,6 +2027,31 @@
       if (e && visible(e)) return e;
     }
     return null;
+  }
+
+  // v10.0.9: dialog Layanan memuat seluruh daftar layanan dari server Klinik Pintar.
+  // Bila tidak dipakai ±3 menit, server butuh ±5 detik (diukur di klinik); setelah itu
+  // hanya ±0,1 detik. Dialog dibuka-tutup sekali di awal RESUME supaya server mulai
+  // memuat daftar sambil script mengisi kolom lain; saat Layanan diisi, daftar sudah siap.
+  let serviceListWarmAt = 0;
+  async function warmServiceList() {
+    if (Date.now() - serviceListWarmAt < 90000) return false;
+    const section = document.getElementById("sec_plan_service");
+    if (section && norm(text(section)).includes(norm(TEMPLATE.service))) return false;
+    if (findDialogByTitle(/./)) return false; // jangan ganggu dialog yang sedang terbuka
+    const btn = document.getElementById("rekam-medis_resume_rme_tambah-layanan_click");
+    if (!btn || !visible(btn)) return false;
+    click(btn);
+    const modal = await waitFor(() => findDialogByTitle(/layanan/i), 3000, 50, "dialog layanan").catch(() => null);
+    if (!modal) return false;
+    serviceListWarmAt = Date.now();
+    await sleep(150); // permintaan daftar layanan sudah terkirim ke server
+    const batal = findButtonByTexts(["Batal"], modal);
+    if (batal) click(batal);
+    await waitFor(() => (findDialogByTitle(/layanan/i) ? null : true), 3000, 50, "dialog layanan tertutup").catch(() => false);
+    await sleep(250); // biarkan fokus kembali ke halaman
+    LOG("Daftar layanan dipanaskan");
+    return true;
   }
 
   // Layanan: dialog "Tambah Layanan/Tindakan" -> Cari Layanan -> pilih
@@ -4365,6 +4402,8 @@
       }
 
       if (isResume) {
+        // v10.0.9: mulai muat daftar layanan lebih dulu (lihat warmServiceList).
+        await warmServiceList().catch((e) => LOG("Pemanasan layanan dilewati: " + (e?.message || e)));
         // Jangan menghentikan seluruh Resume bila struktur field berbeda.
         await step("Anamnesa", copyChiefComplaintToAnamnesis);
       }
@@ -4411,8 +4450,8 @@
       }
 
       if (isResume) {
-        await step("Layanan", addService);
         await step("Status Pulang", setDischarge);
+        await step("Layanan", addService);
       } else {
         await addService();
         await addRecipeItems(TEMPLATE.medicines);
