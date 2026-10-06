@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Klinik Pintar - AUTO KLINIK
 // @namespace    klinikpintar-auto
-// @version      10.0.7
-// @description  AUTO KLINIK untuk os.klinikpintar.id — ISPA Dewasa, Resume, Resep Manual, Paket Resep Golongan. Tidak pernah menekan Simpan otomatis.
+// @version      10.0.8
+// @description  AUTO KLINIK untuk os.klinikpintar.id — RESUME + DIAGNOSIS + RESEP, Resume, Paket Resep Golongan. Tidak pernah menekan Simpan otomatis.
 // @author       taufanmtknight-debug
 // @match        https://os.klinikpintar.id/*
 // @match        http://os.klinikpintar.id/*
@@ -26,7 +26,7 @@
 //   4. FORM RESEP & RACIKAN   — isi obat non-racikan & racikan
 //   5. DATA PASIEN            — umur dari identitas, BB, pencarian template BB
 //   6. PAKET RESEP GOLONGAN   — audit, resolver, preview, eksekusi, picker
-//   7. MENU                   — Penyakit, Resep Manual, Resume
+//   7. MENU                   — RESUME, RESUME + DIAGNOSIS + RESEP
 //   8. UI & BOOT              — notifikasi, kunci proses, launcher, CSS
 
 (function () {
@@ -34,7 +34,7 @@
 
   // Versi diambil dari header (GM_info) agar label launcher tidak pernah beda
   // dengan @version. Nilai cadangan WAJIB sama dengan @version (dicek oleh test).
-  const SCRIPT_VERSION_FALLBACK = "10.0.7";
+  const SCRIPT_VERSION_FALLBACK = "10.0.8";
   const VERSION =
     (typeof GM_info !== "undefined" && GM_info?.script?.version) ||
     SCRIPT_VERSION_FALLBACK;
@@ -1791,10 +1791,30 @@
     return option;
   }
 
+  // Ada nilai terpilih (bukan placeholder "Pilih ...", "Cari ...", "Masukkan ...")?
+  function msHasValue(root) {
+    if (!root) return false;
+    const box = msBox(root);
+    return [...root.children].some(
+      (c) =>
+        c !== box &&
+        !/^(input|svg)$/i.test(c.tagName) &&
+        text(c) &&
+        !/\b(?:text-neutral-500|placeholder)\b/.test(String(c.className || "")) &&
+        !/^(?:pilih|cari|masuk?kan)\b/i.test(text(c)),
+    );
+  }
+
   // Pilih nilai persis (huruf besar/kecil diabaikan) lalu pastikan labelnya tampil.
-  async function msChoose(root, value, label) {
+  // v10.0.8: keepExisting = nilai lain yang sudah dipilih dokter (mis. Status Pulang
+  // "Rujuk Vertikal") TIDAK ditimpa; hasilnya { kept: "<nilai dokter>" }.
+  async function msChoose(root, value, label, { keepExisting = false } = {}) {
     if (!root) throw new Error(`Kolom ${label} tidak ditemukan`);
     if (norm(msShown(root)) === norm(value)) return false;
+    if (keepExisting && msHasValue(root)) {
+      LOG(`${label} sudah diisi "${msShown(root)}" -> tidak diubah`);
+      return { kept: msShown(root) };
+    }
     await msPick(root, msExact(value), label);
     const ok = await waitFor(
       () => (norm(msShown(root)) === norm(value) ? true : null),
@@ -1813,6 +1833,7 @@
     const labels = [...scope.querySelectorAll("label, dt, span, p, div")].filter(
       (el) =>
         el.children.length <= 2 &&
+        (el.textContent || "").length <= want.length + 12 &&
         visible(el) &&
         !isOwnUi(el) &&
         norm(text(el)).replace(/\s*\*$/, "").trim() === want,
@@ -1876,18 +1897,27 @@
   }
 
   async function setConsciousness() {
-    await msChoose(msRootByLabel("Status Kesadaran"), TEMPLATE.consciousness, "Status Kesadaran");
+    const r = await msChoose(msRootByLabel("Status Kesadaran"), TEMPLATE.consciousness, "Status Kesadaran", {
+      keepExisting: true,
+    });
     LOG("Status kesadaran OK");
+    return r;
   }
 
   async function setPrognosis() {
-    await msChoose(fieldRoot("dd_prognosis", "Prognosa"), TEMPLATE.prognosis, "Prognosa");
+    const r = await msChoose(fieldRoot("dd_prognosis", "Prognosa"), TEMPLATE.prognosis, "Prognosa", {
+      keepExisting: true,
+    });
     LOG("Prognosa OK");
+    return r;
   }
 
   async function setDischarge() {
-    await msChoose(fieldRoot("dd_status", "Status Pulang"), TEMPLATE.discharge, "Status Pulang");
+    const r = await msChoose(fieldRoot("dd_status", "Status Pulang"), TEMPLATE.discharge, "Status Pulang", {
+      keepExisting: true,
+    });
     LOG("Status pulang OK");
+    return r;
   }
 
   // ---------------- DIAGNOSIS + ICD 10 ----------------
@@ -2026,7 +2056,11 @@
     try {
       if (!hasService()) {
         const search = msRoots(modal).find((r) => msInput(r));
-        await msPick(search, msExact(TEMPLATE.service), "Cari Layanan", { typed: "BPJS - Dokter Umum", timeout: 15000 });
+        await msPick(search, msExact(TEMPLATE.service), "Cari Layanan", { typed: "BPJS - Dokter Umum", timeout: 15000 }).catch((e) => {
+          throw /pilihan tidak ditemukan/.test(e.message)
+            ? new Error(`"${TEMPLATE.service}" tidak ditemukan di Cari Layanan`)
+            : e;
+        });
         const ok = await waitFor(() => (hasService() ? true : null), 25000, 150, "layanan").catch(() => false);
         if (!ok) throw new Error(`Layanan ${TEMPLATE.service} belum masuk ke daftar.`);
       }
@@ -2067,6 +2101,13 @@
       120,
       "kolom Anamnesa",
     );
+    // v10.0.8: Anamnesa yang sudah diketik dokter (berbeda dari Keluhan Utama) dibiarkan.
+    const currentAnamnesis = String(anamnesis.value || "").trim();
+    if (currentAnamnesis === chiefValue) return false;
+    if (currentAnamnesis) {
+      LOG("Resume: Anamnesa sudah diisi dokter -> tidak ditimpa");
+      return { kept: currentAnamnesis.length > 40 ? currentAnamnesis.slice(0, 40) + "…" : currentAnamnesis };
+    }
     nativeSetValue(anamnesis, chiefValue);
     await sleep(250);
     if (String(anamnesis.value || "").trim() !== chiefValue) {
@@ -3864,7 +3905,7 @@
         await addRecipeItems(unique);
       } catch (e) {
         if (findRacikanModal()) throw e; // form racikan terbuka: berhenti
-        failedItems.push(`${label} (${e?.message || e})`);
+        failedItems.push(`${label} (${String(e?.message || e).replace(/\.$/, "")})`);
       }
     };
 
@@ -3982,9 +4023,23 @@
   </div>
 </div>`;
     document.body.appendChild(shade);
-    const close = () => shade.remove();
+    const onKey = (ev) => {
+      if (ev.key === "Escape") close();
+    };
+    const close = () => {
+      document.removeEventListener("keydown", onKey, true);
+      shade.remove();
+    };
+    document.addEventListener("keydown", onKey, true);
     shade.querySelector(".ak-rp-x")?.addEventListener("click", close);
     shade.querySelector("#ak-medgroup-close")?.addEventListener("click", close);
+    // Sorotan pilihan tercentang (pengganti :has() untuk browser HP lama).
+    const markChecked = () =>
+      shade.querySelectorAll(".ak-package-choice").forEach((l) => {
+        l.classList.toggle("akm-on", !!l.querySelector("input:checked"));
+      });
+    shade.addEventListener("change", markChecked);
+    new MutationObserver(markChecked).observe(shade, { childList: true, subtree: true });
     const weight = shade.querySelector("#ak-medgroup-weight"),
       weightSourceEl = shade.querySelector("#ak-medgroup-weight-source"),
       status = shade.querySelector("#ak-medgroup-group-status"),
@@ -4254,6 +4309,15 @@
           notify("Pilih minimal satu obat atau tindakan.", "warn", 7000);
           return;
         }
+        // v10.0.8: picker tetap terbuka (pilihan tidak hilang) bila belum bisa input.
+        if (!isMedicalRecordCreatePage()) {
+          notify("Buka halaman Buat Rekam Medis pasien dulu, lalu tekan INPUT RESEP lagi.", "warn", 9000);
+          return;
+        }
+        if (taskRunning) {
+          notify("Masih ada proses AUTO KLINIK yang berjalan. Tunggu sampai selesai, lalu tekan INPUT RESEP lagi.", "warn", 8000);
+          return;
+        }
         close();
         await runTask(`PAKET RESEP ${group === "adult" ? "DEWASA" : "ANAK"}`, () =>
           runMedicationGroupItems(itemKeys, kg, ageYears, actionKeys),
@@ -4262,24 +4326,8 @@
   }
 
   // ============================================================
-  // 7. MENU — Penyakit, Resep Manual, Resume
+  // 7. MENU — RESUME, RESUME + DIAGNOSIS + RESEP
   // ============================================================
-
-  function overlayHead(title, subtitle) {
-    return `<div class="ak-rp-head"><div><div class="ak-rp-title">${escapePreviewHtml(title)}</div><div class="ak-rp-sub">${escapePreviewHtml(subtitle)}</div></div><button class="ak-rp-x" type="button" aria-label="Tutup">×</button></div>`;
-  }
-
-  // Overlay picker sederhana: satu kartu, tombol × menutup.
-  function openOverlay(id, cardClass, innerHtml) {
-    document.getElementById(id)?.remove();
-    const shade = document.createElement("div");
-    shade.id = id;
-    shade.innerHTML = `<div class="ak-rp-card ${cardClass}">${innerHtml}</div>`;
-    document.body.appendChild(shade);
-    const close = () => shade.remove();
-    shade.querySelector(".ak-rp-x")?.addEventListener("click", close);
-    return { shade, close };
-  }
 
   // ---------------- FORM REKAM MEDIS: RESUME ----------------
   // resume : salin Keluhan Utama -> Anamnesa, kesadaran, prognosa (bila ada), layanan, status pulang
@@ -4298,12 +4346,14 @@
     // v10.0.5: tiap langkah RESUME berdiri sendiri. Dulu satu langkah gagal (mis.
     // Layanan) menghentikan semuanya: Status Pulang kosong, Paket Resep tidak terbuka.
     const failed = [];
+    const kept = [];
     const step = async (name, fn) => {
       try {
-        await fn();
+        const r = await fn();
+        if (r?.kept) kept.push(`${name} "${r.kept}"`);
       } catch (e) {
         console.warn(`${label}: ${name} gagal`, e);
-        failed.push(`${name} (${e?.message || e})`);
+        failed.push(`${name} (${String(e?.message || e).replace(/\.$/, "")})`);
       }
     };
 
@@ -4315,13 +4365,8 @@
       }
 
       if (isResume) {
-        try {
-          await copyChiefComplaintToAnamnesis();
-        } catch (copyErr) {
-          // Jangan menghentikan seluruh Resume bila struktur field berbeda.
-          console.warn("Gagal menyalin Keluhan Utama ke Anamnesa:", copyErr);
-          LOG("Resume: copy Keluhan Utama -> Anamnesa dilewati: " + copyErr.message);
-        }
+        // Jangan menghentikan seluruh Resume bila struktur field berbeda.
+        await step("Anamnesa", copyChiefComplaintToAnamnesis);
       }
 
       if (isResume) await step("Status Kesadaran", setConsciousness);
@@ -4374,7 +4419,9 @@
         await setDischarge();
         validateAndReport();
       }
-      const failNote = failed.length ? ` BELUM TERISI: ${failed.join("; ")}. Isi manual.` : "";
+      const failNote =
+        (kept.length ? ` Tidak diubah (sudah diisi dokter): ${kept.join(", ")}.` : "") +
+        (failed.length ? ` BELUM TERISI: ${failed.join("; ")}. Isi manual.` : "");
 
       if (withDiagnosis) {
         const dxLabel = (key) => DIAGNOSIS_TEMPLATES.find((d) => d.key === key)?.label || key;
@@ -4443,19 +4490,35 @@
     }
     const n = document.createElement("div");
     n.className = "ai-notify " + kind;
-    n.textContent = msg;
+    n.title = "Ketuk untuk menutup";
+    const icon = document.createElement("span");
+    icon.className = "ak-ni";
+    icon.textContent = { success: "✓", error: "✕", warn: "!", info: "i" }[kind] || "i";
+    const body = document.createElement("span");
+    body.textContent = msg;
+    n.append(icon, body);
     stack.appendChild(n);
-    setTimeout(() => {
+    // v10.0.8: notifikasi bisa diketuk untuk ditutup; paling banyak 4 sekaligus.
+    while (stack.childElementCount > 4) stack.firstElementChild.remove();
+    const dismiss = () => {
       n.remove();
       if (!stack.childElementCount) stack.remove();
-    }, ms);
+    };
+    n.addEventListener("click", dismiss);
+    setTimeout(dismiss, ms);
+  }
+
+  function mainButtonHtml(busyLabel) {
+    return busyLabel
+      ? `<span>⏳ ${escapePreviewHtml(busyLabel)}…</span>`
+      : `<span>⚡ AUTO KLINIK</span><span class="ak-ver">v${escapePreviewHtml(VERSION)}</span>`;
   }
 
   function setBusy(on, label = "AUTO KLINIK") {
     const b = document.getElementById("auto-klinik-main");
     if (!b) return;
     b.disabled = on;
-    b.textContent = on ? `⏳ ${label}…` : "⚡ AUTO KLINIK";
+    b.innerHTML = mainButtonHtml(on ? label : null);
   }
 
   // Semua automasi dijalankan lewat runTask: hanya SATU proses boleh berjalan
@@ -4498,9 +4561,28 @@
   }
 
   const MAIN_MENU = [
-    { id: "auto-klinik-resume-dx", label: "🧪 RESUME + DIAGNOSIS + RESEP", run: () => runTemplate("resume-diagnosis") },
-    { id: "auto-klinik-resume", label: "📋 RESUME", run: () => runTemplate("resume") },
-    { id: "auto-klinik-paket-obat", label: "💊 PAKET RESEP GOLONGAN", run: () => renderMedicationGroupPackagePicker() },
+    {
+      id: "auto-klinik-resume-dx",
+      icon: "🧪",
+      label: "RESUME + DIAGNOSIS + RESEP",
+      desc: "Resume, diagnosis dari keluhan, lalu Paket Resep",
+      primary: true,
+      run: () => runTemplate("resume-diagnosis"),
+    },
+    {
+      id: "auto-klinik-resume",
+      icon: "📋",
+      label: "RESUME",
+      desc: "Anamnesa, kesadaran, prognosa, layanan, status pulang",
+      run: () => runTemplate("resume"),
+    },
+    {
+      id: "auto-klinik-paket-obat",
+      icon: "💊",
+      label: "PAKET RESEP GOLONGAN",
+      desc: "Pilih obat & racikan sesuai umur/BB",
+      run: () => renderMedicationGroupPackagePicker(),
+    },
   ];
 
   function closeMainSubmenu() {
@@ -4524,21 +4606,30 @@
     const box = document.createElement("div");
     box.id = "auto-klinik-box";
     box.setAttribute("data-auto-klinik", "1");
+    // v10.0.8: menu muncul DI ATAS tombol utama, jadi tombol tidak bergeser saat menu dibuka.
+    const menuButton = (m) =>
+      `<button id="${m.id}" type="button"${m.primary ? ' class="ak-primary"' : ""}>` +
+      `<span class="ak-ico">${m.icon}</span>` +
+      `<span class="ak-txt"><span>${escapePreviewHtml(m.label)}</span><small>${escapePreviewHtml(m.desc)}</small></span>` +
+      `</button>`;
     box.innerHTML = `
       <div class="ak-menu">
-        <div class="ak-title">Klinik Pintar Auto v${escapePreviewHtml(VERSION)}</div>
-        <button id="auto-klinik-main" type="button">⚡ AUTO KLINIK</button>
         <div id="auto-klinik-submenu" class="ak-submenu" aria-hidden="true">
-          ${MAIN_MENU.map((m) => `<button id="${m.id}" type="button">${m.label}</button>`).join("")}
+          <div class="ak-sub-head"><span>Auto Klinik</span><span>v${escapePreviewHtml(VERSION)}</span></div>
+          <div class="ak-sub-note">Buka pasien → Buat Rekam Medis dulu untuk RESUME dan resep.</div>
+          ${MAIN_MENU.map(menuButton).join("")}
         </div>
+        <button id="auto-klinik-main" type="button">${mainButtonHtml(taskRunning ? "Berjalan" : null)}</button>
       </div>`;
     mountRoot.appendChild(box);
+    if (taskRunning) box.querySelector("#auto-klinik-main").disabled = true;
 
     const submenu = box.querySelector("#auto-klinik-submenu");
     box.querySelector("#auto-klinik-main")?.addEventListener("click", (ev) => {
       ev.preventDefault();
       ev.stopPropagation();
       const isOpen = submenu.classList.toggle("ak-open");
+      submenu.classList.toggle("ak-offpage", !isMedicalRecordCreatePage());
       submenu.setAttribute("aria-hidden", isOpen ? "false" : "true");
     });
 
@@ -4547,7 +4638,11 @@
         ev.preventDefault();
         ev.stopPropagation();
         closeMainSubmenu();
-        item.run();
+        try {
+          Promise.resolve(item.run()).catch((e) => notify(`${item.label}: ${e?.message || e}`, "error", 12000));
+        } catch (e) {
+          notify(`${item.label}: ${e?.message || e}`, "error", 12000);
+        }
       });
     }
   }
@@ -4577,157 +4672,129 @@
     window.addEventListener("pageshow", recheck);
   }
 
+  // v10.0.8: satu keluarga huruf sistem (lebih nyaman dibaca di HP & desktop).
+  const AK_FONT = 'system-ui,-apple-system,"Segoe UI",Roboto,Arial,sans-serif';
+
   const STYLES = `
-    /* ---------- Launcher ---------- */
-    #auto-klinik-box{position:fixed!important;right:16px!important;bottom:92px!important;z-index:2147483647!important;
-      display:block!important;width:max-content!important;max-width:calc(100vw - 32px)!important;box-sizing:border-box!important;
-      font-family:Arial,sans-serif!important;pointer-events:auto!important;}
-    #auto-klinik-box .ak-title{display:block!important;background:#fff!important;color:#555!important;border-radius:8px 8px 0 0!important;
-      padding:6px 9px!important;font:700 11px Arial,sans-serif!important;text-align:center!important;box-shadow:0 0 12px rgba(0,0,0,.08)!important;}
-    #auto-klinik-main{display:block!important;min-width:210px!important;min-height:46px!important;padding:13px 16px!important;
-      border:1px solid #ea580c!important;border-radius:10px!important;background:#f97316!important;color:#fff!important;
-      font:700 14px Arial,sans-serif!important;white-space:nowrap!important;cursor:pointer!important;touch-action:manipulation!important;
-      box-shadow:0 5px 18px rgba(0,0,0,.18)!important;box-sizing:border-box!important;}
-    #auto-klinik-main:hover{background:#ea580c!important;}
-    #auto-klinik-main:disabled{opacity:.75!important;cursor:wait!important;}
-    #auto-klinik-submenu{display:none;flex-direction:column;gap:7px;padding-top:7px;}
-    #auto-klinik-submenu.ak-open{display:flex!important;}
-    #auto-klinik-submenu button{display:block!important;width:100%!important;padding:10px 13px!important;text-align:left!important;
-      border:1px solid #fb923c!important;border-radius:9px!important;background:#fff7ed!important;color:#9a3412!important;
-      font:800 13px Arial,sans-serif!important;cursor:pointer!important;touch-action:manipulation!important;box-sizing:border-box!important;
-      box-shadow:0 2px 8px rgba(234,88,12,.12)!important;}
-    #auto-klinik-submenu button:hover{background:#ffedd5!important;border-color:#f97316!important;}
-    @media (min-width:768px){#auto-klinik-box{right:22px!important;bottom:22px!important;max-width:calc(100vw - 44px)!important;}}
+    /* ---------- Launcher (kanan bawah, di atas tombol chat Klinik Pintar) ---------- */
+    #auto-klinik-box{position:fixed!important;right:16px!important;bottom:88px!important;z-index:2147483644!important;
+      display:flex!important;flex-direction:column!important;align-items:flex-end!important;gap:8px!important;
+      width:auto!important;max-width:calc(100vw - 24px)!important;box-sizing:border-box!important;
+      font-family:${AK_FONT}!important;pointer-events:none!important;}
+    #auto-klinik-box .ak-menu{display:flex!important;flex-direction:column!important;align-items:flex-end!important;gap:8px!important;}
+    #auto-klinik-box .ak-menu > *{pointer-events:auto!important;}
+    #auto-klinik-main{display:inline-flex!important;align-items:center!important;gap:8px!important;min-height:44px!important;
+      padding:10px 14px 10px 16px!important;border:0!important;border-radius:999px!important;
+      background:linear-gradient(135deg,#fb923c,#ea580c)!important;color:#fff!important;
+      font:700 14px/1 ${AK_FONT}!important;letter-spacing:.2px!important;white-space:nowrap!important;
+      cursor:pointer!important;touch-action:manipulation!important;box-sizing:border-box!important;
+      box-shadow:0 6px 18px rgba(234,88,12,.32),0 2px 6px rgba(15,23,42,.12)!important;}
+    #auto-klinik-main .ak-ver{font:600 10.5px/1 ${AK_FONT}!important;padding:3px 7px!important;border-radius:999px!important;
+      background:rgba(255,255,255,.22)!important;color:#fff!important;}
+    #auto-klinik-main:hover{filter:brightness(1.06)!important;}
+    #auto-klinik-main:disabled{cursor:wait!important;background:#64748b!important;box-shadow:0 4px 12px rgba(15,23,42,.2)!important;}
+    #auto-klinik-submenu{display:none!important;}
+    #auto-klinik-submenu.ak-open{display:flex!important;flex-direction:column!important;gap:6px!important;
+      width:min(300px,calc(100vw - 24px))!important;padding:8px!important;border:1px solid #e2e8f0!important;border-radius:16px!important;
+      background:#fff!important;box-shadow:0 14px 36px rgba(15,23,42,.2)!important;box-sizing:border-box!important;}
+    #auto-klinik-submenu .ak-sub-head{display:flex!important;justify-content:space-between!important;align-items:center!important;
+      padding:4px 6px 2px!important;font:700 11px/1.3 ${AK_FONT}!important;color:#64748b!important;letter-spacing:.5px!important;text-transform:uppercase!important;}
+    #auto-klinik-submenu .ak-sub-note{display:none!important;}
+    #auto-klinik-submenu.ak-offpage .ak-sub-note{display:block!important;margin:0 2px 2px!important;padding:8px 10px!important;border-radius:10px!important;
+      background:#fffbeb!important;color:#92400e!important;font:600 12px/1.4 ${AK_FONT}!important;}
+    #auto-klinik-submenu button{display:flex!important;align-items:center!important;gap:10px!important;width:100%!important;min-height:48px!important;
+      margin:0!important;padding:9px 12px!important;text-align:left!important;border:1px solid #e2e8f0!important;border-radius:12px!important;
+      background:#fff!important;color:#0f172a!important;font:700 13.5px/1.25 ${AK_FONT}!important;cursor:pointer!important;
+      touch-action:manipulation!important;box-sizing:border-box!important;box-shadow:none!important;}
+    #auto-klinik-submenu button:hover{background:#fff7ed!important;border-color:#fdba74!important;}
+    #auto-klinik-submenu button .ak-ico{flex:none!important;width:22px!important;text-align:center!important;font-size:17px!important;line-height:1!important;}
+    #auto-klinik-submenu button .ak-txt{display:flex!important;flex-direction:column!important;gap:2px!important;min-width:0!important;}
+    #auto-klinik-submenu button small{font:500 11.5px/1.3 ${AK_FONT}!important;color:#64748b!important;white-space:normal!important;}
+    #auto-klinik-submenu button.ak-primary{background:#f97316!important;border-color:#ea580c!important;color:#fff!important;}
+    #auto-klinik-submenu button.ak-primary small{color:#ffedd5!important;}
+    #auto-klinik-submenu button.ak-primary:hover{background:#ea580c!important;}
 
-    /* ---------- Notifikasi ---------- */
-    #ak-notify-stack{position:fixed!important;left:14px!important;bottom:14px!important;z-index:2147483647!important;
-      display:flex!important;flex-direction:column!important;gap:8px!important;pointer-events:none!important;}
-    .ai-notify{max-width:min(360px,calc(100vw - 28px))!important;padding:10px 12px!important;border-radius:10px!important;color:#fff!important;
-      font:12px/1.3 Arial,sans-serif!important;box-shadow:0 6px 18px rgba(0,0,0,.22)!important;}
-    .ai-notify.success{background:#1d9b59!important}
-    .ai-notify.error{background:#c63d3d!important}
-    .ai-notify.warn{background:#c98511!important}
-    .ai-notify.info{background:#3b78c5!important}
+    /* ---------- Notifikasi (kiri bawah; ketuk untuk menutup) ---------- */
+    #ak-notify-stack{position:fixed!important;left:12px!important;bottom:12px!important;z-index:2147483647!important;
+      display:flex!important;flex-direction:column!important;gap:8px!important;max-width:min(380px,calc(100vw - 24px))!important;
+      pointer-events:none!important;}
+    .ai-notify{display:flex!important;gap:9px!important;align-items:flex-start!important;padding:10px 12px!important;border-radius:12px!important;
+      color:#fff!important;font:500 12.5px/1.42 ${AK_FONT}!important;box-shadow:0 8px 24px rgba(15,23,42,.24)!important;
+      pointer-events:auto!important;cursor:pointer!important;word-break:break-word!important;}
+    .ai-notify .ak-ni{flex:none!important;font-weight:800!important;}
+    .ai-notify.success{background:#15803d!important}
+    .ai-notify.error{background:#b91c1c!important}
+    .ai-notify.warn{background:#b45309!important}
+    .ai-notify.info{background:#1d4ed8!important}
 
-    /* ---------- Overlay & kartu picker ---------- */
-    #ak-recipe-picker,#ak-disease-picker,#ak-medgroup-picker{position:fixed!important;inset:0!important;z-index:2147483647!important;
-      background:rgba(0,0,0,.38)!important;display:flex!important;align-items:center!important;justify-content:center!important;
-      font-family:Arial,sans-serif!important;}
+    /* ---------- Overlay & kartu Paket Resep ---------- */
+    #ak-medgroup-picker{position:fixed!important;inset:0!important;z-index:2147483646!important;
+      background:rgba(15,23,42,.45)!important;display:flex!important;align-items:center!important;justify-content:center!important;
+      font-family:${AK_FONT}!important;}
     .ak-rp-card{width:min(680px,calc(100vw - 24px))!important;max-height:calc(100vh - 40px)!important;overflow:auto!important;
-      background:#fff!important;border-radius:14px!important;padding:16px!important;box-shadow:0 20px 50px rgba(0,0,0,.3)!important;
-      box-sizing:border-box!important;color:#193041!important;}
-    .ak-rp-head{display:flex!important;justify-content:space-between!important;gap:10px!important;align-items:flex-start!important}
-    .ak-rp-title{font-size:18px!important;font-weight:800!important;color:#193041!important}
-    .ak-rp-sub{font-size:13px!important;color:#66717a!important;margin-top:4px!important}
-    .ak-rp-x{border:0!important;background:transparent!important;font-size:26px!important;cursor:pointer!important;line-height:1!important}
-    .ak-rp-section{margin-top:16px!important}
-    .ak-rp-label{font-size:11px!important;font-weight:800!important;color:#6a747d!important;margin-bottom:8px!important}
-    .ak-rp-grid{display:grid!important;grid-template-columns:repeat(2,minmax(0,1fr))!important;gap:8px!important}
-    .ak-rp-btn{width:100%!important;text-align:left!important;min-height:42px!important;padding:10px 12px!important;
-      border:1px solid #fb923c!important;border-radius:9px!important;background:#fff7ed!important;color:#9a3412!important;
-      font:700 13px Arial,sans-serif!important;cursor:pointer!important;}
-    .ak-rp-btn:hover{background:#ffedd5!important;border-color:#f97316!important;}
-    .ak-rp-weight{min-height:62px!important;display:flex!important;flex-direction:column!important;justify-content:center!important;gap:4px!important;}
-    .ak-rp-weight span{font-weight:700!important;}
-    .ak-rp-weight small{font-size:11px!important;font-weight:500!important;color:#9a3412!important;opacity:.8!important;}
-    .ak-rp-foot{display:flex!important;flex-wrap:wrap!important;align-items:center!important;justify-content:space-between!important;
-      gap:10px!important;margin-top:12px!important;padding-top:10px!important;border-top:1px solid #e5e7eb!important;}
-    .ak-rp-back{border:1px solid #fdba74!important;background:#ffedd5!important;color:#9a3412!important;border-radius:9px!important;
-      padding:8px 12px!important;font-weight:700!important;cursor:pointer!important;}
-    .ak-disease-card{max-width:620px!important;}
-    .ak-medgroup-card{max-width:760px!important;}
-    @media (min-width:768px){
-      .ak-rp-card{width:min(760px,calc(100vw - 48px))!important;}
-      .ak-rp-grid{grid-template-columns:repeat(3,minmax(0,1fr))!important;}
-    }
-    @media (max-width:767px){
-      .ak-disease-card,.ak-medgroup-card{width:calc(100vw - 20px)!important;padding:13px!important;}
-      .ak-medgroup-card .ak-rp-grid{grid-template-columns:1fr!important;}
-    }
+      background:#fff!important;border-radius:16px!important;padding:16px!important;box-shadow:0 24px 60px rgba(15,23,42,.35)!important;
+      box-sizing:border-box!important;color:#0f172a!important;}
+    .ak-rp-title{font:800 18px/1.25 ${AK_FONT}!important;color:#0f172a!important}
+    .ak-rp-sub{font:500 13px/1.45 ${AK_FONT}!important;color:#64748b!important;margin-top:4px!important}
+    .ak-rp-x{flex:none!important;width:36px!important;height:36px!important;border:0!important;border-radius:10px!important;background:#f1f5f9!important;
+      color:#475569!important;font:400 24px/1 ${AK_FONT}!important;cursor:pointer!important;}
+    .ak-rp-x:hover{background:#e2e8f0!important;}
+    .ak-rp-label{margin-bottom:6px!important;font:800 11px/1.3 ${AK_FONT}!important;color:#64748b!important;letter-spacing:.4px!important;}
 
-    /* ---------- Paket Resep Golongan ---------- */
-    .ak-package-step{margin-top:16px!important;}
-    .akm-dx-row{font:12px/1.5 Arial,sans-serif!important;color:#334155!important;}
-    .akm-dx-role{font:600 10px Arial,sans-serif!important;color:#0284c7!important;border:1px solid #bae6fd!important;border-radius:4px!important;padding:0 4px!important;margin-right:4px!important;}
-    .akm-vitals{margin-top:6px!important;font:600 12px/1.5 Arial,sans-serif!important;color:#334155!important;}
-    .akm-vflag{display:inline-block!important;margin:3px 4px 0 0!important;padding:1px 7px!important;border-radius:999px!important;font:700 11px Arial,sans-serif!important;}
+    /* ---------- Paket Resep: isi ---------- */
+    .akm-dx-row{font:500 12.5px/1.5 ${AK_FONT}!important;color:#334155!important;}
+    .akm-dx-row b{color:#0f172a!important;}
+    .akm-dx-role{font:700 10px/1.4 ${AK_FONT}!important;color:#0369a1!important;background:#f0f9ff!important;border:1px solid #bae6fd!important;
+      border-radius:999px!important;padding:0 6px!important;margin-right:4px!important;}
+    .akm-vitals{margin-top:6px!important;font:600 12px/1.5 ${AK_FONT}!important;color:#334155!important;}
+    .akm-vflag{display:inline-block!important;margin:3px 4px 0 0!important;padding:1px 7px!important;border-radius:999px!important;font:700 11px/1.5 ${AK_FONT}!important;}
     .akm-vflag.warn{background:#fef3c7!important;color:#92400e!important;}
     .akm-vflag.danger{background:#fee2e2!important;color:#b91c1c!important;}
-    .ak-package-status{margin-top:8px!important;padding:8px 10px!important;border-radius:8px!important;background:#f3f4f6!important;
-      color:#4b5563!important;font:700 12px Arial,sans-serif!important;}
-    .ak-package-status.adult{background:#fff7ed!important;color:#9a3412!important;}
-    .ak-package-status.child{background:#eff6ff!important;color:#1d4ed8!important;}
-    .ak-package-weight-manual{display:flex!important;align-items:center!important;gap:8px!important;margin-top:7px!important;}
-    .ak-package-weight-manual input{flex:1!important;min-width:0!important;padding:11px 12px!important;border:1px solid #cbd5e1!important;
-      border-radius:9px!important;background:#fff!important;color:#193041!important;font:800 15px/1.2 Arial,sans-serif!important;box-sizing:border-box!important;}
-    .ak-package-weight-manual input:focus{outline:none!important;border-color:#f97316!important;box-shadow:0 0 0 2px rgba(249,115,22,.12)!important;}
-    .ak-package-weight-manual span{font:800 14px/1 Arial,sans-serif!important;color:#64748b!important;}
-    .ak-package-age-hint{margin-top:7px!important;color:#6b7280!important;font:600 11px/1.4 Arial,sans-serif!important;}
-    .ak-package-age-auto{margin-top:7px!important;padding:10px 12px!important;border:1px solid #cbd5e1!important;border-radius:9px!important;
-      background:#f8fafc!important;color:#475569!important;font:800 14px/1.35 Arial,sans-serif!important;}
-    .ak-package-age-auto.found{border-color:#86efac!important;background:#f0fdf4!important;color:#166534!important;}
-    .ak-package-age-auto.missing{border-color:#fbbf24!important;background:#fffbeb!important;color:#92400e!important;}
-    .ak-package-multi-grid{grid-template-columns:repeat(2,minmax(0,1fr))!important;}
     .ak-package-choice{display:flex!important;align-items:center!important;gap:9px!important;padding:10px 12px!important;border:1px solid #e2e8f0!important;
       border-radius:10px!important;background:#fff!important;cursor:pointer!important;font-weight:700!important;}
-    .ak-package-choice:has(input:checked){border-color:#f97316!important;background:#fff7ed!important;}
-    .ak-package-choice input{width:18px!important;height:18px!important;accent-color:#f97316!important;}
-    .ak-package-selected{margin-top:10px!important;padding:9px 11px!important;border-radius:9px!important;background:#f8fafc!important;
-      font-size:12px!important;font-weight:700!important;line-height:1.45!important;}
-    .ak-package-actions{display:flex!important;gap:8px!important;align-items:center!important;flex-wrap:wrap!important;}
-    .ak-rp-btn.ak-package-run{width:auto!important;background:#f97316!important;color:#fff!important;border-color:#ea580c!important;}
-    .ak-rp-btn.ak-package-run:hover{background:#ea580c!important;}
+    .ak-package-choice input{flex:none!important;width:18px!important;height:18px!important;margin:0!important;accent-color:#f97316!important;}
     .ak-package-anamnesis{display:block!important;width:100%!important;margin-top:7px!important;padding:10px 12px!important;border:1px solid #cbd5e1!important;
-      border-radius:9px!important;background:#fff!important;color:#193041!important;font:600 13px/1.45 Arial,sans-serif!important;box-sizing:border-box!important;resize:vertical!important;}
-    .ak-package-anamnesis:focus{outline:none!important;border-color:#f97316!important;box-shadow:0 0 0 2px rgba(249,115,22,.12)!important;}
-    .ak-package-anamnesis-bar{display:flex!important;justify-content:space-between!important;align-items:center!important;gap:8px!important;flex-wrap:wrap!important;}
+      border-radius:10px!important;background:#fff!important;color:#0f172a!important;font:500 13px/1.45 ${AK_FONT}!important;box-sizing:border-box!important;resize:vertical!important;}
+    .ak-package-anamnesis:focus{outline:none!important;border-color:#f97316!important;box-shadow:0 0 0 3px rgba(249,115,22,.14)!important;}
     .ak-package-suggestion{margin-top:8px!important;}
-    .ak-package-suggestion-box{padding:10px 12px!important;border:1px solid #c4b5fd!important;border-radius:9px!important;background:#f5f3ff!important;
-      color:#3b0764!important;font:600 12px/1.6 Arial,sans-serif!important;}
+    .ak-package-suggestion-box{padding:10px 12px!important;border:1px solid #ddd6fe!important;border-radius:10px!important;background:#f5f3ff!important;
+      color:#3b0764!important;font:500 12px/1.6 ${AK_FONT}!important;}
     .ak-package-suggestion-box .ak-live-preview-title{color:#6d28d9!important;margin-bottom:4px!important;}
-    .ak-package-suggestion-warn{margin-top:6px!important;color:#92400e!important;font:700 11px/1.4 Arial,sans-serif!important;}
-    .ak-suggest-badge{margin-left:auto!important;padding:2px 7px!important;border-radius:999px!important;background:#7c3aed!important;color:#fff!important;
-      font:800 10px/1.4 Arial,sans-serif!important;font-style:normal!important;}
-    #ak-update-offer{position:fixed!important;left:50%!important;top:20px!important;transform:translateX(-50%)!important;z-index:2147483647!important;
-      width:min(360px,calc(100vw - 32px))!important;display:flex!important;flex-direction:column!important;gap:10px!important;padding:16px!important;
-      border-radius:12px!important;background:#fff!important;box-shadow:0 10px 30px rgba(0,0,0,.25)!important;color:#193041!important;
-      font:600 13px/1.45 Arial,sans-serif!important;box-sizing:border-box!important;}
-    #ak-update-offer a{display:block!important;padding:12px!important;border-radius:9px!important;background:#f97316!important;color:#fff!important;
-      text-align:center!important;text-decoration:none!important;font:800 15px Arial,sans-serif!important;}
-    #ak-update-offer small{color:#64748b!important;}
-    #ak-update-offer button{padding:8px!important;border:1px solid #cbd5e1!important;border-radius:9px!important;background:#fff!important;color:#475569!important;}
-    .ak-package-note{flex:1!important;min-width:200px!important;font:600 11px/1.5 Arial,sans-serif!important;color:#6b7280!important;}
+    .ak-package-suggestion-warn{margin-top:6px!important;color:#92400e!important;font:600 11px/1.4 ${AK_FONT}!important;}
+    .ak-suggest-badge{flex:none!important;margin-left:auto!important;padding:2px 7px!important;border-radius:999px!important;background:#7c3aed!important;color:#fff!important;
+      font:700 10px/1.4 ${AK_FONT}!important;font-style:normal!important;}
 
-    /* ---------- Paket Resep v9.3: tata letak kartu ---------- */
+    /* ---------- Paket Resep: tata letak kartu ---------- */
     .ak-rp-card.akm{display:flex!important;flex-direction:column!important;width:min(1120px,calc(100vw - 32px))!important;max-width:none!important;
-      height:min(900px,calc(100vh - 32px))!important;max-height:none!important;padding:0!important;overflow:hidden!important;background:#f4f6f8!important;}
+      height:min(900px,calc(100vh - 32px))!important;max-height:none!important;padding:0!important;overflow:hidden!important;background:#f1f5f9!important;}
     .akm-head{display:flex!important;justify-content:space-between!important;align-items:flex-start!important;gap:12px!important;
-      padding:14px 18px!important;background:#fff!important;border-bottom:1px solid #e5e7eb!important;}
+      padding:14px 18px!important;background:#fff!important;border-bottom:1px solid #e2e8f0!important;}
     .akm-head .ak-rp-title{font-size:19px!important;}
     .akm-head .ak-rp-sub{font-size:12.5px!important;line-height:1.5!important;}
     .akm-body{flex:1!important;min-height:0!important;overflow:auto!important;padding:14px!important;display:grid!important;gap:12px!important;
       grid-template-columns:minmax(0,5fr) minmax(0,7fr)!important;align-items:start!important;}
     .akm-col{display:flex!important;flex-direction:column!important;gap:12px!important;min-width:0!important;}
-    .akm-sec{background:#fff!important;border:1px solid #e5e7eb!important;border-radius:12px!important;padding:12px 14px!important;min-width:0!important;}
-    .akm-preview{padding:0!important;border:0!important;background:transparent!important;}
+    .akm-sec{background:#fff!important;border:1px solid #e2e8f0!important;border-radius:14px!important;padding:12px 14px!important;min-width:0!important;
+      box-shadow:0 1px 2px rgba(15,23,42,.04)!important;}
+    .akm-preview{padding:0!important;border:0!important;background:transparent!important;box-shadow:none!important;}
     .akm-sec-title{display:flex!important;align-items:center!important;gap:8px!important;margin:0 0 10px!important;
-      font:800 13px/1.3 Arial,sans-serif!important;color:#193041!important;letter-spacing:.2px!important;}
+      font:800 13px/1.3 ${AK_FONT}!important;color:#0f172a!important;letter-spacing:.2px!important;}
     .akm-sec-title small{font-weight:600!important;color:#94a3b8!important;}
     .akm-count{margin-left:auto!important;padding:2px 9px!important;border-radius:999px!important;background:#f97316!important;color:#fff!important;font-size:11px!important;}
     .akm-count:empty{display:none!important;}
     .akm-link{margin-left:auto!important;border:0!important;background:transparent!important;color:#ea580c!important;
-      font:700 12px Arial,sans-serif!important;cursor:pointer!important;padding:2px 4px!important;}
-    .akm-hint{margin-top:8px!important;color:#64748b!important;font:600 11.5px/1.45 Arial,sans-serif!important;}
+      font:700 12px ${AK_FONT}!important;cursor:pointer!important;padding:2px 4px!important;}
+    .akm-hint{margin-top:8px!important;color:#64748b!important;font:500 11.5px/1.45 ${AK_FONT}!important;}
     .akm-stats{display:grid!important;grid-template-columns:repeat(3,minmax(0,1fr))!important;gap:8px!important;}
     .akm-stat{display:flex!important;flex-direction:column!important;gap:4px!important;padding:9px 10px!important;border:1px solid #e2e8f0!important;
       border-radius:10px!important;background:#f8fafc!important;min-width:0!important;}
-    .akm-stat > span:first-child{font:700 10.5px Arial,sans-serif!important;color:#64748b!important;text-transform:uppercase!important;letter-spacing:.4px!important;}
-    .akm-stat b{font:800 16px/1.2 Arial,sans-serif!important;color:#0f172a!important;}
+    .akm-stat > span:first-child{font:700 10.5px ${AK_FONT}!important;color:#64748b!important;text-transform:uppercase!important;letter-spacing:.4px!important;}
+    .akm-stat b{font:800 16px/1.2 ${AK_FONT}!important;color:#0f172a!important;}
     .akm-stat-bb{cursor:text!important;}
     .akm-bb{display:flex!important;align-items:baseline!important;gap:4px!important;}
     .akm-bb input{width:100%!important;min-width:0!important;padding:0!important;border:0!important;border-bottom:2px solid #f97316!important;
-      border-radius:0!important;background:transparent!important;font:800 16px/1.2 Arial,sans-serif!important;color:#0f172a!important;outline:none!important;}
-    .akm-bb i{font:700 12px Arial,sans-serif!important;color:#64748b!important;font-style:normal!important;}
+      border-radius:0!important;background:transparent!important;font:800 16px/1.2 ${AK_FONT}!important;color:#0f172a!important;outline:none!important;}
+    .akm-bb i{font:700 12px ${AK_FONT}!important;color:#64748b!important;font-style:normal!important;}
     .akm-cat{align-self:flex-start!important;padding:2px 9px!important;border-radius:999px!important;font-size:13px!important;}
     .akm-cat.adult{background:#ffedd5!important;color:#9a3412!important;}
     .akm-cat.child{background:#dbeafe!important;color:#1d4ed8!important;}
@@ -4735,29 +4802,32 @@
     .akm-cat.akm-missing{background:#fef3c7!important;}
     .akm .ak-package-anamnesis{margin-top:0!important;min-height:64px!important;}
     .akm-items{display:flex!important;flex-direction:column!important;gap:12px!important;}
-    .akm-group-title{margin:0 0 6px!important;font:800 10.5px Arial,sans-serif!important;color:#64748b!important;text-transform:uppercase!important;letter-spacing:.5px!important;}
+    .akm-group-title{margin:0 0 6px!important;font:800 10.5px ${AK_FONT}!important;color:#64748b!important;text-transform:uppercase!important;letter-spacing:.5px!important;}
     .akm-choices{display:grid!important;grid-template-columns:repeat(2,minmax(0,1fr))!important;gap:6px!important;}
-    .akm .ak-package-choice{min-height:40px!important;padding:7px 10px!important;gap:9px!important;font:700 13px/1.3 Arial,sans-serif!important;color:#1e293b!important;}
+    .akm .ak-package-choice{min-height:40px!important;padding:7px 10px!important;gap:9px!important;font:600 13px/1.3 ${AK_FONT}!important;color:#1e293b!important;}
+    .akm .ak-package-choice:hover{border-color:#cbd5e1!important;}
     .akm .ak-package-choice.akm-suggested{border-color:#c4b5fd!important;}
-    .akm .ak-package-choice:has(input:checked){border-color:#f97316!important;background:#fff7ed!important;box-shadow:inset 3px 0 0 #f97316!important;}
+    .akm .ak-package-choice.akm-on{border-color:#f97316!important;background:#fff7ed!important;box-shadow:inset 3px 0 0 #f97316!important;}
     .akm-name{display:flex!important;flex-direction:column!important;min-width:0!important;}
-    .akm-name small{font:600 11px/1.3 Arial,sans-serif!important;color:#64748b!important;}
+    .akm-name small{font:500 11px/1.3 ${AK_FONT}!important;color:#64748b!important;}
     .akm .ak-package-suggestion-box{font-size:12px!important;}
     .akm-foot{display:flex!important;align-items:center!important;gap:12px!important;padding:12px 18px!important;background:#fff!important;
-      border-top:1px solid #e5e7eb!important;box-shadow:0 -4px 14px rgba(15,23,42,.06)!important;}
-    .akm-selected{flex:1!important;min-width:0!important;font:600 12px/1.4 Arial,sans-serif!important;color:#475569!important;
+      border-top:1px solid #e2e8f0!important;box-shadow:0 -4px 14px rgba(15,23,42,.06)!important;}
+    .akm-selected{flex:1!important;min-width:0!important;font:500 12px/1.4 ${AK_FONT}!important;color:#475569!important;
       display:-webkit-box!important;-webkit-line-clamp:2!important;-webkit-box-orient:vertical!important;overflow:hidden!important;}
     .akm-selected b{color:#ea580c!important;}
     .akm-actions{display:flex!important;gap:8px!important;flex:none!important;}
-    .akm-btn-ghost,.akm-btn-primary{min-height:44px!important;padding:10px 16px!important;border-radius:10px!important;cursor:pointer!important;
-      font:800 14px Arial,sans-serif!important;touch-action:manipulation!important;}
+    .akm-btn-ghost,.akm-btn-primary{min-height:44px!important;padding:10px 18px!important;border-radius:12px!important;cursor:pointer!important;
+      font:700 14px ${AK_FONT}!important;touch-action:manipulation!important;}
     .akm-btn-ghost{border:1px solid #cbd5e1!important;background:#fff!important;color:#475569!important;}
+    .akm-btn-ghost:hover{background:#f8fafc!important;}
     .akm-btn-primary{border:1px solid #ea580c!important;background:#f97316!important;color:#fff!important;}
     .akm-btn-primary:hover{background:#ea580c!important;}
     @media (max-width:860px){
       .akm-body{display:flex!important;flex-direction:column!important;align-items:stretch!important;padding:10px!important;gap:10px!important;}
       .akm-col{display:contents!important;}
-      .akm-pasien{order:1!important}.akm-anamnesa{order:2!important}.akm-obat{order:3!important}.akm-tindakan{order:4!important}.akm-preview{order:5!important}
+      .akm-pasien{order:1!important}.akm-diagnosis{order:2!important}.akm-anamnesa{order:3!important}
+      .akm-obat{order:4!important}.akm-tindakan{order:5!important}.akm-preview{order:6!important}
     }
     @media (max-width:600px){
       #ak-medgroup-picker{align-items:stretch!important;}
@@ -4770,52 +4840,38 @@
       .akm-actions > *{flex:1!important;}
     }
 
-    /* ---------- Cari Obat Klinik ---------- */
-    #ak-medlist-picker{position:fixed!important;inset:0!important;z-index:2147483647!important;background:rgba(0,0,0,.38)!important;
-      display:flex!important;align-items:center!important;justify-content:center!important;font-family:Arial,sans-serif!important;}
-    .ak-rp-card.akm.akm-finder{width:min(760px,calc(100vw - 32px))!important;}
-    .akm-finder-body{flex:1!important;min-height:0!important;overflow:auto!important;padding:14px!important;display:flex!important;flex-direction:column!important;gap:12px!important;}
-    .akm-finder-bar{display:flex!important;gap:8px!important;}
-    .akm-finder-bar input{flex:1!important;min-width:0!important;padding:10px 12px!important;border:1px solid #cbd5e1!important;border-radius:10px!important;
-      font:700 14px Arial,sans-serif!important;color:#0f172a!important;background:#fff!important;}
-    .akm-finder-tools{display:flex!important;align-items:center!important;gap:10px!important;flex-wrap:wrap!important;margin-top:10px!important;}
-    .akm-finder-tools .akm-btn-ghost{min-height:36px!important;padding:6px 12px!important;font-size:12px!important;}
-    .akm-finder-tools .akm-hint{margin:0!important;}
-    .akm-finder-results{display:flex!important;flex-direction:column!important;gap:6px!important;}
-    .akm-finder-row{display:flex!important;align-items:center!important;gap:10px!important;padding:9px 10px!important;border:1px solid #e2e8f0!important;border-radius:10px!important;background:#fff!important;}
-    .akm-finder-name{flex:1!important;min-width:0!important;display:flex!important;flex-direction:column!important;gap:2px!important;font:700 13px/1.35 Arial,sans-serif!important;color:#0f172a!important;}
-    .akm-finder-name small{font:600 11px Arial,sans-serif!important;color:#64748b!important;}
-    .akm-tag{flex:none!important;padding:5px 10px!important;border-radius:999px!important;font:800 11px Arial,sans-serif!important;border:0!important;}
-    .akm-tag.ok{background:#dcfce7!important;color:#166534!important;}
-    .akm-tag.new{background:#7c3aed!important;color:#fff!important;cursor:pointer!important;}
-    .akm-finder-ok{padding:12px!important;border-radius:10px!important;background:#f0fdf4!important;color:#166534!important;font:700 13px Arial,sans-serif!important;}
-    .akm-btn-primary:disabled{opacity:.45!important;cursor:not-allowed!important;}
-
     /* ---------- Preview obat terpilih ---------- */
-    .ak-package-live-preview{margin-top:12px!important;}
-    .ak-package-preview-meta{margin:0 0 12px!important;padding:10px 12px!important;border-radius:10px!important;background:#f8fafc!important;
-      font:700 13px/1.55 Arial,sans-serif!important;color:#334155!important;}
-    .ak-live-preview-box{padding:12px!important;border:1px solid #fed7aa!important;border-radius:12px!important;background:#fffaf5!important;}
+    .ak-package-live-preview{margin-top:0!important;}
+    .ak-package-preview-meta{margin:0 0 10px!important;padding:10px 12px!important;border-radius:10px!important;background:#fff!important;
+      border:1px solid #e2e8f0!important;font:600 13px/1.55 ${AK_FONT}!important;color:#334155!important;}
+    .ak-live-preview-box{padding:12px!important;border:1px solid #fed7aa!important;border-radius:14px!important;background:#fffaf5!important;}
     .ak-live-preview-head{display:flex!important;justify-content:space-between!important;gap:10px!important;align-items:flex-start!important;}
-    .ak-live-preview-title{font:800 13px Arial,sans-serif!important;color:#9a3412!important;}
-    .ak-live-preview-sub{font:600 11px/1.4 Arial,sans-serif!important;color:#64748b!important;margin-top:2px!important;}
-    .ak-live-preview-count{flex:none!important;padding:3px 9px!important;border-radius:999px!important;background:#f97316!important;color:#fff!important;font:800 11px Arial,sans-serif!important;}
+    .ak-live-preview-title{font:800 13px/1.3 ${AK_FONT}!important;color:#9a3412!important;}
+    .ak-live-preview-sub{font:500 11px/1.4 ${AK_FONT}!important;color:#64748b!important;margin-top:2px!important;}
+    .ak-live-preview-count{flex:none!important;padding:3px 9px!important;border-radius:999px!important;background:#f97316!important;color:#fff!important;font:800 11px ${AK_FONT}!important;}
     .ak-preview-section{margin-top:12px!important;}
     .ak-live-preview-row{display:grid!important;grid-template-columns:minmax(0,1.35fr) minmax(180px,.85fr)!important;gap:12px!important;
-      padding:11px 12px!important;border:1px solid #e2e8f0!important;border-radius:9px!important;background:#fff!important;margin-top:7px!important;
-      font:600 12px/1.45 Arial,sans-serif!important;color:#334155!important;}
-    .ak-live-preview-racikan{padding:11px 12px!important;border:1px solid #e2e8f0!important;border-radius:9px!important;background:#fff!important;
-      margin-top:7px!important;font:600 12px/1.5 Arial,sans-serif!important;color:#334155!important;}
+      padding:11px 12px!important;border:1px solid #e2e8f0!important;border-radius:10px!important;background:#fff!important;margin-top:7px!important;
+      font:500 12px/1.45 ${AK_FONT}!important;color:#334155!important;}
+    .ak-live-preview-racikan{padding:11px 12px!important;border:1px solid #e2e8f0!important;border-radius:10px!important;background:#fff!important;
+      margin-top:7px!important;font:500 12px/1.5 ${AK_FONT}!important;color:#334155!important;}
     .ak-live-preview-row b,.ak-live-preview-racikan b{font-size:13px!important;color:#0f172a!important;}
-    .ak-live-preview-row small,.ak-live-preview-racikan small{display:block!important;margin-top:3px!important;color:#64748b!important;font-weight:600!important;}
-    .ak-preview-empty{padding:11px 12px!important;border:1px dashed #cbd5e1!important;border-radius:9px!important;color:#64748b!important;
-      background:#f8fafc!important;font:600 12px/1.4 Arial,sans-serif!important;}
-    .ak-preview-notes{margin-top:12px!important;padding:10px 12px!important;border:1px solid #fde68a!important;border-radius:9px!important;
-      background:#fffbeb!important;color:#92400e!important;font:600 12px/1.5 Arial,sans-serif!important;}
+    .ak-live-preview-row small,.ak-live-preview-racikan small{display:block!important;margin-top:3px!important;color:#64748b!important;font-weight:500!important;}
+    .ak-preview-empty{padding:11px 12px!important;border:1px dashed #cbd5e1!important;border-radius:10px!important;color:#64748b!important;
+      background:#f8fafc!important;font:500 12px/1.4 ${AK_FONT}!important;}
+    .ak-preview-notes{margin-top:12px!important;padding:10px 12px!important;border:1px solid #fde68a!important;border-radius:10px!important;
+      background:#fffbeb!important;color:#92400e!important;font:500 12px/1.5 ${AK_FONT}!important;}
     @media (max-width:767px){.ak-live-preview-row{grid-template-columns:1fr!important;}}
   `;
 
   function start() {
+    // v10.0.8: cegah eksekusi ganda bila ada dua salinan script aktif.
+    const root = document.documentElement;
+    if (root?.hasAttribute("data-auto-klinik")) {
+      LOG(`Script lain (v${root.getAttribute("data-auto-klinik")}) sudah aktif -> salinan ini tidak dijalankan.`);
+      return;
+    }
+    root?.setAttribute("data-auto-klinik", VERSION);
     addStyle(STYLES);
     hookSpaNavigation();
     ensureButtonMounted();
@@ -4849,6 +4905,10 @@
         setTimeout(ensureButtonMounted, 500);
       }, { once: true });
     }
+
+    document.addEventListener("keydown", (ev) => {
+      if (ev.key === "Escape") closeMainSubmenu();
+    });
 
     // Klik di luar launcher menutup submenu.
     document.addEventListener("click", (ev) => {
