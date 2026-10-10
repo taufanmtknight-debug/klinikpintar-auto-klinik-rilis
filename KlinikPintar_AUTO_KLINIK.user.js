@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Klinik Pintar - AUTO KLINIK
 // @namespace    klinikpintar-auto
-// @version      10.1.1
+// @version      10.1.2
 // @description  AUTO KLINIK untuk os.klinikpintar.id — RESUME + DIAGNOSIS + RESEP, Resume, Paket Resep Golongan. Tidak pernah menekan Simpan otomatis.
 // @author       taufanmtknight-debug
 // @match        https://os.klinikpintar.id/*
@@ -34,7 +34,7 @@
 
   // Versi diambil dari header (GM_info) agar label launcher tidak pernah beda
   // dengan @version. Nilai cadangan WAJIB sama dengan @version (dicek oleh test).
-  const SCRIPT_VERSION_FALLBACK = "10.1.1";
+  const SCRIPT_VERSION_FALLBACK = "10.1.2";
   const VERSION =
     (typeof GM_info !== "undefined" && GM_info?.script?.version) ||
     SCRIPT_VERSION_FALLBACK;
@@ -4291,15 +4291,18 @@
 
     // v10.1.1: preview diagnosis yang akan dipilih di halaman, langsung saat keluhan
     // diketik. Setelah keluhan diubah dokter, saran obat ikut diagnosis preview ini.
-    const baseDiagnosis = presetDiagnosis;
-    const initialComplaint = String(pageComplaint.text || "").trim();
+    // committed* = keluhan & diagnosis yang terakhir berlaku di halaman (awal, atau
+    // hasil sinkron Diagnosis terakhir). Bila keluhan kembali ke teks itu, saran obat
+    // kembali ikut diagnosis tersebut, bukan diagnosis preview sebelumnya.
+    let committedComplaint = String(pageComplaint.text || "").trim();
+    let committedDiagnosis = presetDiagnosis;
     const dxLabelOf = (key) => DIAGNOSIS_TEMPLATES.find((d) => d.key === key)?.label || key;
     const renderDxPreview = () => {
       const el = shade.querySelector("#ak-medgroup-dx-preview");
       const t = String(anamnesisEl.value || "").trim();
       const found = t ? detectDiagnosisFromComplaint(t, { vitals: vitalsAssessment }) : null;
       const dx = found && DIAGNOSIS_TEMPLATES.find((d) => d.key === found.key);
-      if (t !== initialComplaint) presetDiagnosis = dx || baseDiagnosis;
+      presetDiagnosis = t === committedComplaint ? committedDiagnosis : dx || committedDiagnosis;
       if (!el) return;
       if (!t) {
         el.innerHTML = "";
@@ -4525,7 +4528,9 @@
         if (syncStatusEl) syncStatusEl.textContent = "⏳ Memperbarui diagnosis…";
         const r = await updateDiagnosisFromComplaint(t);
         dxSyncedText = t;
-        if (r.dx) presetDiagnosis = r.dx;
+        committedComplaint = t;
+        if (r.dx) committedDiagnosis = r.dx;
+        presetDiagnosis = committedDiagnosis;
         if (syncStatusEl) syncStatusEl.textContent = `✓ Keluhan Utama & Anamnesa diperbarui · Diagnosis: ${r.note}`;
         renderDx(selectedIcdEntries(), readFieldText("Diagnosa"));
         renderDxPreview();
@@ -4547,6 +4552,8 @@
         const fresh = readChiefComplaintFromPage();
         if (fresh.text) anamnesisEl.value = fresh.text;
         setAnamnesisSource(fresh.source);
+        renderDxPreview();
+        renderDx(selectedIcdEntries(), readFieldText("Diagnosa"));
         resuggest({ reset: true });
       });
     weight?.addEventListener("input", () => refreshCategory());
