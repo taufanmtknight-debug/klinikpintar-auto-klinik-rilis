@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Klinik Pintar - AUTO KLINIK
 // @namespace    klinikpintar-auto
-// @version      10.1.0
+// @version      10.1.1
 // @description  AUTO KLINIK untuk os.klinikpintar.id — RESUME + DIAGNOSIS + RESEP, Resume, Paket Resep Golongan. Tidak pernah menekan Simpan otomatis.
 // @author       taufanmtknight-debug
 // @match        https://os.klinikpintar.id/*
@@ -34,7 +34,7 @@
 
   // Versi diambil dari header (GM_info) agar label launcher tidak pernah beda
   // dengan @version. Nilai cadangan WAJIB sama dengan @version (dicek oleh test).
-  const SCRIPT_VERSION_FALLBACK = "10.1.0";
+  const SCRIPT_VERSION_FALLBACK = "10.1.1";
   const VERSION =
     (typeof GM_info !== "undefined" && GM_info?.script?.version) ||
     SCRIPT_VERSION_FALLBACK;
@@ -4189,6 +4189,7 @@
     <section class="akm-sec akm-diagnosis">
       <div class="akm-sec-title">🩺 Diagnosis terinput</div>
       <div id="ak-medgroup-dx" class="akm-dx"></div>
+      <div id="ak-medgroup-dx-preview"></div>
     </section>
     <section class="akm-sec akm-anamnesa">
       <div class="akm-sec-title">📝 Keluhan Utama <button id="ak-medgroup-resuggest" class="akm-link" type="button">↻ Baca ulang</button></div>
@@ -4287,6 +4288,37 @@
     };
     renderDx(pageIcd, pageDiagnosisText);
     anamnesisEl.value = pageComplaint.text;
+
+    // v10.1.1: preview diagnosis yang akan dipilih di halaman, langsung saat keluhan
+    // diketik. Setelah keluhan diubah dokter, saran obat ikut diagnosis preview ini.
+    const baseDiagnosis = presetDiagnosis;
+    const initialComplaint = String(pageComplaint.text || "").trim();
+    const dxLabelOf = (key) => DIAGNOSIS_TEMPLATES.find((d) => d.key === key)?.label || key;
+    const renderDxPreview = () => {
+      const el = shade.querySelector("#ak-medgroup-dx-preview");
+      const t = String(anamnesisEl.value || "").trim();
+      const found = t ? detectDiagnosisFromComplaint(t, { vitals: vitalsAssessment }) : null;
+      const dx = found && DIAGNOSIS_TEMPLATES.find((d) => d.key === found.key);
+      if (t !== initialComplaint) presetDiagnosis = dx || baseDiagnosis;
+      if (!el) return;
+      if (!t) {
+        el.innerHTML = "";
+        return;
+      }
+      if (!dx) {
+        el.innerHTML = `<div class="akm-dxp none">🔎 Diagnosis dari keluhan: <b>tidak dikenali</b>. Diagnosa/ICD di halaman tidak diubah.</div>`;
+        return;
+      }
+      const page = selectedIcdEntries();
+      const filled = dx.icd.some((c) => page.some((e) => e.code === c.toUpperCase()));
+      const others = (found.others || []).map(dxLabelOf);
+      el.innerHTML =
+        `<div class="akm-dxp"><div class="akm-dxp-head">🔎 Preview diagnosis dari keluhan<span class="akm-dxp-tag${filled ? " ok" : ""}">${filled ? "sudah terisi" : "akan dipilih"}</span></div>` +
+        `<div><b>${escapePreviewHtml(dx.icd[0])}</b> ${escapePreviewHtml(dx.label)} <small>(dari "${escapePreviewHtml(found.keyword)}")</small></div>` +
+        (others.length ? `<small>Juga cocok: ${escapePreviewHtml(others.join(", "))}</small>` : "") +
+        `</div>`;
+    };
+    renderDxPreview();
     setAnamnesisSource(pageComplaint.source);
 
     // Simpan pilihan obat lintas perubahan kategori. Obat yang tidak sesuai kategori
@@ -4460,9 +4492,11 @@
     anamnesisEl.addEventListener("input", () => {
       clearTimeout(anamnesisTimer);
       anamnesisTimer = setTimeout(() => {
+        renderDxPreview();
+        renderDx(selectedIcdEntries(), readFieldText("Diagnosa"));
         resuggest();
         syncComplaintText();
-      }, 500);
+      }, 350);
     });
 
     // v10.1.0: keluhan yang diubah di sini ikut mengubah Keluhan Utama & Anamnesa di
@@ -4494,6 +4528,7 @@
         if (r.dx) presetDiagnosis = r.dx;
         if (syncStatusEl) syncStatusEl.textContent = `✓ Keluhan Utama & Anamnesa diperbarui · Diagnosis: ${r.note}`;
         renderDx(selectedIcdEntries(), readFieldText("Diagnosa"));
+        renderDxPreview();
         resuggest();
       }).finally(() => {
         dxSyncPromise = null;
@@ -4502,6 +4537,7 @@
     };
     anamnesisEl.addEventListener("change", () => {
       clearTimeout(anamnesisTimer);
+      renderDxPreview();
       resuggest();
       syncDiagnosis();
     });
@@ -4993,6 +5029,15 @@
     .akm-dx-row b{color:#0f172a!important;}
     .akm-dx-role{font:700 10px/1.4 ${AK_FONT}!important;color:#0369a1!important;background:#f0f9ff!important;border:1px solid #bae6fd!important;
       border-radius:999px!important;padding:0 6px!important;margin-right:4px!important;}
+    .akm-dxp{margin-top:8px!important;padding:8px 10px!important;border:1px dashed #93c5fd!important;border-radius:10px!important;
+      background:#eff6ff!important;color:#1e3a8a!important;font:500 12.5px/1.5 ${AK_FONT}!important;}
+    .akm-dxp b{color:#0f172a!important;}
+    .akm-dxp small{color:#475569!important;}
+    .akm-dxp.none{border-color:#cbd5e1!important;background:#f8fafc!important;color:#64748b!important;}
+    .akm-dxp-head{display:flex!important;align-items:center!important;gap:6px!important;font-weight:700!important;margin-bottom:2px!important;}
+    .akm-dxp-tag{margin-left:auto!important;padding:1px 8px!important;border-radius:999px!important;background:#2563eb!important;color:#fff!important;
+      font:700 10.5px/1.5 ${AK_FONT}!important;}
+    .akm-dxp-tag.ok{background:#16a34a!important;}
     .akm-sync:empty{display:none!important;}
     .akm-sync{color:#15803d!important;font-weight:600!important;}
     .akm-vitals{margin-top:6px!important;font:600 12px/1.5 ${AK_FONT}!important;color:#334155!important;}
