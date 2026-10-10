@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Klinik Pintar - AUTO KLINIK
 // @namespace    klinikpintar-auto
-// @version      10.1.2
+// @version      10.2.0
 // @description  AUTO KLINIK untuk os.klinikpintar.id — RESUME + DIAGNOSIS + RESEP, Resume, Paket Resep Golongan. Tidak pernah menekan Simpan otomatis.
 // @author       taufanmtknight-debug
 // @match        https://os.klinikpintar.id/*
@@ -34,7 +34,7 @@
 
   // Versi diambil dari header (GM_info) agar label launcher tidak pernah beda
   // dengan @version. Nilai cadangan WAJIB sama dengan @version (dicek oleh test).
-  const SCRIPT_VERSION_FALLBACK = "10.1.2";
+  const SCRIPT_VERSION_FALLBACK = "10.2.0";
   const VERSION =
     (typeof GM_info !== "undefined" && GM_info?.script?.version) ||
     SCRIPT_VERSION_FALLBACK;
@@ -1310,6 +1310,60 @@
       adult: ["SIMVASTATIN_10"], child: [] },
   ];
 
+  // v10.2.0: kemungkinan diagnosis lain (diagnosis banding) yang ditawarkan di Paket
+  // Resep, di samping diagnosis yang cocok dari kata keluhan. Hanya ditawarkan, tidak
+  // dicentang otomatis.
+  const DIAGNOSIS_RELATED = {
+    ISPA: ["FARINGITIS", "TONSILITIS", "RINITIS_ALERGI", "SINUSITIS"],
+    FARINGITIS: ["TONSILITIS", "ISPA"],
+    TONSILITIS: ["FARINGITIS", "ISPA"],
+    SINUSITIS: ["RINITIS_ALERGI", "ISPA", "CEPHALGIA"],
+    RINITIS_ALERGI: ["ISPA", "SINUSITIS"],
+    OMA: ["ISPA"],
+    ASMA: ["ISPA"],
+    GEA: ["DISPEPSIA", "NYERI_PERUT"],
+    DISPEPSIA: ["GASTRITIS", "GEA"],
+    GASTRITIS: ["DISPEPSIA"],
+    NYERI_PERUT: ["DISPEPSIA", "GEA", "ISK", "KONSTIPASI"],
+    KONSTIPASI: ["NYERI_PERUT"],
+    HELMINTHIASIS: ["NYERI_PERUT"],
+    FEVER: ["ISPA", "MYALGIA", "ISK"],
+    MYALGIA: ["LBP", "FEVER", "OA_GENU"],
+    LBP: ["MYALGIA"],
+    OA_GENU: ["MYALGIA", "HIPERURISEMIA"],
+    HIPERURISEMIA: ["OA_GENU"],
+    CEPHALGIA: ["VERTIGO", "HT"],
+    VERTIGO: ["CEPHALGIA", "HT"],
+    HT: ["CEPHALGIA", "DISLIPIDEMIA", "DM"],
+    DM: ["HT", "DISLIPIDEMIA"],
+    DISLIPIDEMIA: ["HT", "DM"],
+    DERMATITIS: ["URTIKARIA", "TINEA"],
+    URTIKARIA: ["DERMATITIS"],
+    TINEA: ["DERMATITIS", "PANU"],
+    PANU: ["TINEA"],
+    VARICELLA: ["ZOSTER"],
+    ZOSTER: ["VARICELLA"],
+    ISK: ["NYERI_PERUT"],
+    DISMENORE: ["NYERI_PERUT"],
+    PULPITIS: ["ABSES"],
+  };
+
+  // Daftar pilihan diagnosis untuk hasil detectDiagnosisFromComplaint():
+  // diagnosis utama, diagnosis lain yang juga cocok dari kata keluhan, lalu
+  // kemungkinan lain dari DIAGNOSIS_RELATED (maks. `max` baris).
+  function diagnosisCandidates(found, max = 6) {
+    if (!found) return [];
+    const out = [{ key: found.key, source: "utama", keyword: found.keyword }];
+    const add = (key, source) => {
+      if (out.length >= max || out.some((c) => c.key === key)) return;
+      if (DIAGNOSIS_TEMPLATES.some((d) => d.key === key)) out.push({ key, source });
+    };
+    for (const k of found.others || []) add(k, "keluhan");
+    for (const k of [found.key, ...(found.others || [])])
+      for (const r of DIAGNOSIS_RELATED[k] || []) add(r, "kemungkinan");
+    return out;
+  }
+
   // RESUME + DIAGNOSIS (uji coba): diagnosis dipilih dari Keluhan Utama.
   // tier = prioritas bila beberapa cocok (angka kecil didahulukan):
   //   1 keluhan akut spesifik (urutan daftar: tonsil > faring > ISPA > GEA > ...)
@@ -2044,37 +2098,49 @@
       .catch(() => false);
   }
 
-  // v10.1.0: keluhan diubah di Paket Resep -> diagnosis ikut diperbarui. Diagnosis yang
-  // dulu diisi script diganti; ICD/teks yang diisi dokter sendiri dibiarkan.
-  async function updateDiagnosisFromComplaint(complaint) {
-    const vitals = assessVitals(readVitalsFromPage(), getPatientAgeFromIdentity()?.ageYears ?? null);
-    const found = detectDiagnosisFromComplaint(complaint, { vitals });
-    const dx = found && DIAGNOSIS_TEMPLATES.find((d) => d.key === found.key);
-    if (!dx) return { dx: null, note: "diagnosis tidak dikenali dari keluhan; Diagnosa/ICD tidak diubah" };
-    const codes = dx.icd.map((c) => c.toUpperCase());
-    if (codes.some(icdAlreadySelected)) return { dx, note: `${dx.label} sudah terisi` };
+  // v10.2.0: isi Diagnosa/ICD sesuai daftar diagnosis terpilih di Paket Resep (urutan =
+  // urutan pilihan; pertama = utama). ICD & nama diagnosis yang dulu diisi SCRIPT dan
+  // tidak dipilih lagi dihapus; ICD/teks yang diisi dokter sendiri dibiarkan.
+  async function applyDiagnosesToPage(dxList) {
     const auto = autoDxForPage();
-    const doctorIcd = selectedIcdEntries().filter((e) => !auto.codes.has(e.code));
-    // Ganti ICD buatan script.
-    for (const code of [...auto.codes]) {
-      if (await removeIcdCard(code)) auto.codes.delete(code);
+    const codesOf = (dx) => dx.icd.map((c) => c.toUpperCase());
+    const page = selectedIcdEntries();
+    for (const c of [...auto.codes]) if (!page.some((e) => e.code === c)) auto.codes.delete(c);
+    const doctorCodes = new Set(page.filter((e) => !auto.codes.has(e.code)).map((e) => e.code));
+    // Diagnosis yang ICD-nya diisi script, urut sesuai pilihan. Kartu buatan script yang
+    // urutannya sudah benar dipertahankan; sisanya dihapus lalu dipilih ulang berurutan.
+    const needAuto = dxList.filter((dx) => !codesOf(dx).some((c) => doctorCodes.has(c)));
+    const autoEntries = page.filter((e) => auto.codes.has(e.code));
+    let keep = 0;
+    while (keep < autoEntries.length && keep < needAuto.length && codesOf(needAuto[keep]).includes(autoEntries[keep].code))
+      keep++;
+    for (const e of autoEntries.slice(keep)) {
+      if (await removeIcdCard(e.code)) auto.codes.delete(e.code);
     }
-    // Ganti nama diagnosis buatan script di kolom Diagnosa.
+    // Nama diagnosis buatan script di kolom Diagnosa ditulis ulang sesuai urutan pilihan.
     const diag = textFieldByIdOrLabel("tf_diagnosis", "Diagnosa", ["Masukkan diagnosa"]);
     if (diag && auto.names.length) {
       let t = String(diag.value || "");
       for (const n of auto.names) t = t.split(n).join("");
-      t = t.replace(/\s*,\s*(?=,|$)/g, "").replace(/^\s*,\s*/, "").trim();
+      t = t.replace(/\s*,\s*(?=,|$)/g, "").replace(/^\s*,\s*/, "").replace(/,\s*,/g, ",").trim();
       nativeSetValue(diag, t);
-      auto.names = [];
     }
-    const r = await fillDiagnosis(dx);
-    return {
-      dx,
-      note:
-        `${dx.label} (ICD ${r.icdCode})` +
-        (doctorIcd.length ? ` · ICD dokter dibiarkan: ${doctorIcd.map((e) => e.code).join(", ")}` : ""),
-    };
+    auto.names = [];
+    const filled = [];
+    const errors = [];
+    for (const dx of dxList) {
+      try {
+        const r = await fillDiagnosis(dx);
+        filled.push(`${dx.label} (ICD ${r.icdCode})`);
+      } catch (e) {
+        errors.push(`${dx.label}: ${e?.message || e}`);
+      }
+    }
+    const note =
+      (filled.length ? filled.join(", ") : "tidak ada diagnosis dipilih") +
+      (errors.length ? ` · GAGAL: ${errors.join("; ")}` : "") +
+      (doctorCodes.size ? ` · ICD dokter dibiarkan: ${[...doctorCodes].join(", ")}` : "");
+    return { filled, errors, note };
   }
 
   // Template ISPA lama (tidak ada di menu; dipertahankan untuk runTemplate("ispa")).
@@ -3542,11 +3608,12 @@
   function suggestMedicationsFromAnamnesis(rawText, group, options = {}) {
     const result = { keys: [], actionKeys: [], matches: [], notes: [] };
     const lower = String(rawText || "").toLowerCase().replace(/ /g, " ");
-    const dx = options.diagnosis || null;
+    // v10.2.0: options.diagnoses = beberapa diagnosis terpilih (options.diagnosis tetap didukung).
+    const dxList = (options.diagnoses || (options.diagnosis ? [options.diagnosis] : [])).filter(Boolean);
     const vit = options.vitals || null; // hasil assessVitals()
-    if ((!lower.trim() && !dx && !vit?.fever) || (group !== "adult" && group !== "child")) return result;
+    if ((!lower.trim() && !dxList.length && !vit?.fever) || (group !== "adult" && group !== "child")) return result;
 
-    if (dx) {
+    for (const dx of dxList) {
       const keys = dx[group] || [];
       const actions = dx.actions || [];
       result.matches.push({ label: `Diagnosis ${dx.label}`, keyword: dx.icd[0], keys: [...keys], actions: [...actions] });
@@ -4154,11 +4221,16 @@
     // Diagnosis yang sudah terinput di halaman (kartu ICD + kolom Diagnosa).
     const pageIcd = selectedIcdEntries();
     const pageDiagnosisText = readFieldText("Diagnosa");
-    const icdDiagnosis =
-      pageIcd
-        .map((e) => DIAGNOSIS_TEMPLATES.find((d) => d.icd.some((c) => c.toUpperCase() === e.code)))
-        .find(Boolean) || null;
-    let presetDiagnosis = options.diagnosis || icdDiagnosis;
+    // Diagnosis (template) dari kartu ICD yang terisi di halaman saat ini.
+    const pageDiagnoses = () => [
+      ...new Set(
+        selectedIcdEntries()
+          .map((e) => DIAGNOSIS_TEMPLATES.find((d) => d.icd.some((c) => c.toUpperCase() === e.code)))
+          .filter(Boolean),
+      ),
+    ];
+    // Saran obat ikut semua diagnosis terpilih (v10.2.0: bisa lebih dari 1).
+    let presetDiagnoses = options.diagnosis ? [options.diagnosis] : pageDiagnoses();
     const old = document.getElementById("ak-medgroup-picker");
     if (old) old.remove();
     // Baca halaman SEBELUM overlay dipasang, agar kolom milik overlay tidak ikut terbaca.
@@ -4280,8 +4352,8 @@
           `<div class="akm-dx-row"><b>${escapePreviewHtml(e.code)}</b> <span class="akm-dx-role">${e.role}</span> ${escapePreviewHtml(e.name)}</div>`,
       );
       if (diagText) rows.push(`<div class="akm-hint">Diagnosa: ${escapePreviewHtml(diagText)}</div>`);
-      if (presetDiagnosis)
-        rows.push(`<div class="akm-hint">Saran obat ikut diagnosis <b>${escapePreviewHtml(presetDiagnosis.label)}</b>.</div>`);
+      if (presetDiagnoses.length)
+        rows.push(`<div class="akm-hint">Saran obat ikut diagnosis <b>${escapePreviewHtml(presetDiagnoses.map((d) => d.label).join(", "))}</b>.</div>`);
       shade.querySelector("#ak-medgroup-dx").innerHTML = rows.length
         ? rows.join("")
         : '<span class="akm-hint akm-missing">Belum ada Diagnosa / ICD 10 yang terisi.</span>';
@@ -4289,38 +4361,94 @@
     renderDx(pageIcd, pageDiagnosisText);
     anamnesisEl.value = pageComplaint.text;
 
-    // v10.1.1: preview diagnosis yang akan dipilih di halaman, langsung saat keluhan
-    // diketik. Setelah keluhan diubah dokter, saran obat ikut diagnosis preview ini.
-    // committed* = keluhan & diagnosis yang terakhir berlaku di halaman (awal, atau
-    // hasil sinkron Diagnosis terakhir). Bila keluhan kembali ke teks itu, saran obat
-    // kembali ikut diagnosis tersebut, bukan diagnosis preview sebelumnya.
-    let committedComplaint = String(pageComplaint.text || "").trim();
-    let committedDiagnosis = presetDiagnosis;
-    const dxLabelOf = (key) => DIAGNOSIS_TEMPLATES.find((d) => d.key === key)?.label || key;
-    const renderDxPreview = () => {
-      const el = shade.querySelector("#ak-medgroup-dx-preview");
+    // v10.1.1 / v10.2.0: preview diagnosis dari keluhan, diperbarui saat keluhan diketik.
+    // Diagnosis utama tercentang; diagnosis lain yang cocok & kemungkinan lain bisa
+    // dicentang (lebih dari 1). Yang tercentang paling atas = diagnosis utama.
+    const dxByKey = (k) => DIAGNOSIS_TEMPLATES.find((d) => d.key === k) || null;
+    let dxFound = null;
+    let dxCandidates = [];
+    const dxUserAdded = []; // dicentang dokter (urut)
+    const dxUserRemoved = new Set(); // diagnosis utama yang centangnya dihapus dokter
+    const computeDxCandidates = () => {
       const t = String(anamnesisEl.value || "").trim();
-      const found = t ? detectDiagnosisFromComplaint(t, { vitals: vitalsAssessment }) : null;
-      const dx = found && DIAGNOSIS_TEMPLATES.find((d) => d.key === found.key);
-      presetDiagnosis = t === committedComplaint ? committedDiagnosis : dx || committedDiagnosis;
+      dxFound = t ? detectDiagnosisFromComplaint(t, { vitals: vitalsAssessment }) : null;
+      dxCandidates = diagnosisCandidates(dxFound);
+      for (const k of dxUserAdded)
+        if (!dxCandidates.some((c) => c.key === k)) dxCandidates.push({ key: k, source: "dipilih" });
+    };
+    const selectedDxKeys = () =>
+      dxCandidates
+        .filter((c) => (c.source === "utama" && !dxUserRemoved.has(c.key)) || dxUserAdded.includes(c.key))
+        .map((c) => c.key);
+    const dxChoiceMade = () => dxUserAdded.length > 0 || dxUserRemoved.size > 0;
+    const renderDxPreview = () => {
+      computeDxCandidates();
+      const keys = selectedDxKeys();
+      presetDiagnoses = keys.length ? keys.map(dxByKey).filter(Boolean) : pageDiagnoses();
+      const el = shade.querySelector("#ak-medgroup-dx-preview");
       if (!el) return;
-      if (!t) {
+      const t = String(anamnesisEl.value || "").trim();
+      if (!t && !dxCandidates.length) {
         el.innerHTML = "";
         return;
       }
-      if (!dx) {
-        el.innerHTML = `<div class="akm-dxp none">🔎 Diagnosis dari keluhan: <b>tidak dikenali</b>. Diagnosa/ICD di halaman tidak diubah.</div>`;
-        return;
-      }
       const page = selectedIcdEntries();
-      const filled = dx.icd.some((c) => page.some((e) => e.code === c.toUpperCase()));
-      const others = (found.others || []).map(dxLabelOf);
+      const sourceText = (c) =>
+        c.source === "utama"
+          ? `dari "${c.keyword}"`
+          : c.source === "keluhan"
+            ? "juga cocok dari keluhan"
+            : c.source === "kemungkinan"
+              ? "kemungkinan lain"
+              : "ditambahkan dari daftar";
+      const rows = dxCandidates
+        .map((c) => {
+          const dx = dxByKey(c.key);
+          const on = keys.includes(c.key);
+          const filled = dx.icd.some((code) => page.some((e) => e.code === code.toUpperCase()));
+          const tag = !on ? "" : filled ? "sudah terisi" : "akan dipilih";
+          return (
+            `<label class="akm-dxp-opt${on ? " on" : ""}"><input type="checkbox" data-dx-key="${c.key}"${on ? " checked" : ""}>` +
+            `<span><b>${escapePreviewHtml(dx.icd[0])}</b> ${escapePreviewHtml(dx.label)}${on && keys[0] === c.key ? ' <em class="akm-dxp-main">utama</em>' : ""}` +
+            `<small>${escapePreviewHtml(sourceText(c))}</small></span>` +
+            (tag ? `<span class="akm-dxp-tag${filled ? " ok" : ""}">${tag}</span>` : "") +
+            `</label>`
+          );
+        })
+        .join("");
+      const others = DIAGNOSIS_TEMPLATES.filter((d) => !dxCandidates.some((c) => c.key === d.key))
+        .map((d) => `<option value="${d.key}">${escapePreviewHtml(d.icd[0])} ${escapePreviewHtml(d.label)}</option>`)
+        .join("");
       el.innerHTML =
-        `<div class="akm-dxp"><div class="akm-dxp-head">🔎 Preview diagnosis dari keluhan<span class="akm-dxp-tag${filled ? " ok" : ""}">${filled ? "sudah terisi" : "akan dipilih"}</span></div>` +
-        `<div><b>${escapePreviewHtml(dx.icd[0])}</b> ${escapePreviewHtml(dx.label)} <small>(dari "${escapePreviewHtml(found.keyword)}")</small></div>` +
-        (others.length ? `<small>Juga cocok: ${escapePreviewHtml(others.join(", "))}</small>` : "") +
+        `<div class="akm-dxp${dxCandidates.length ? "" : " none"}"><div class="akm-dxp-head">🔎 Diagnosis dari keluhan</div>` +
+        (dxCandidates.length
+          ? `<small>Centang 1 atau lebih. Yang paling atas = diagnosis utama.</small>${rows}`
+          : `<div>Diagnosis dari keluhan: <b>tidak dikenali</b>. Diagnosa/ICD di halaman tidak diubah kecuali Anda memilih di bawah.</div>`) +
+        `<select class="akm-dxp-add" data-dx-add><option value="">+ Tambah diagnosis lain…</option>${others}</select>` +
+        (keys.length ? "" : dxCandidates.length ? `<small>Tidak ada diagnosis dicentang: diagnosis buatan script akan dihapus dari halaman.</small>` : "") +
         `</div>`;
     };
+    const onDxChoice = (key, checked) => {
+      if (!key) return;
+      const isMain = dxFound?.key === key;
+      const i = dxUserAdded.indexOf(key);
+      if (checked) {
+        dxUserRemoved.delete(key);
+        if (!isMain && i < 0) dxUserAdded.push(key);
+      } else {
+        if (isMain) dxUserRemoved.add(key);
+        if (i >= 0) dxUserAdded.splice(i, 1);
+      }
+      renderDxPreview();
+      renderDx(selectedIcdEntries(), readFieldText("Diagnosa"));
+      resuggest();
+      scheduleDxSync();
+    };
+    shade.querySelector("#ak-medgroup-dx-preview")?.addEventListener("change", (ev) => {
+      const t = ev.target;
+      if (t?.matches?.("[data-dx-key]")) onDxChoice(t.getAttribute("data-dx-key"), t.checked);
+      else if (t?.matches?.("[data-dx-add]")) onDxChoice(t.value, true);
+    });
     renderDxPreview();
     setAnamnesisSource(pageComplaint.source);
 
@@ -4366,7 +4494,7 @@
       for (const k of autoAdded) selectedMedicationKeys.delete(k);
       autoAdded.clear();
       if (reset) dismissed.clear();
-      const s = suggestMedicationsFromAnamnesis(anamnesisEl.value, group, { diagnosis: presetDiagnosis, vitals: vitalsAssessment });
+      const s = suggestMedicationsFromAnamnesis(anamnesisEl.value, group, { diagnoses: presetDiagnoses, vitals: vitalsAssessment });
       suggestedKeys = new Set(s.keys);
       for (const k of s.keys) {
         if (dismissed.has(k) || selectedMedicationKeys.has(k)) continue;
@@ -4399,7 +4527,7 @@
         const notes = s.notes
           .map((n) => `<br><small>ⓘ ${escapePreviewHtml(n)}</small>`)
           .join("");
-        suggestionEl.innerHTML = `<div class="ak-package-suggestion-box"><div class="ak-live-preview-title">✨ SARAN OBAT & TINDAKAN DARI ${presetDiagnosis ? "DIAGNOSIS & " : ""}KELUHAN UTAMA (${group === "adult" ? "DEWASA" : "ANAK"})</div>${rows}${notes}<div class="ak-package-suggestion-warn">Saran otomatis berdasarkan kata kunci dan sudah dicentang. Dokter wajib mengevaluasi indikasi, kontraindikasi, dan riwayat alergi sebelum input.</div></div>`;
+        suggestionEl.innerHTML = `<div class="ak-package-suggestion-box"><div class="ak-live-preview-title">✨ SARAN OBAT & TINDAKAN DARI ${presetDiagnoses.length ? "DIAGNOSIS & " : ""}KELUHAN UTAMA (${group === "adult" ? "DEWASA" : "ANAK"})</div>${rows}${notes}<div class="ak-package-suggestion-warn">Saran otomatis berdasarkan kata kunci dan sudah dicentang. Dokter wajib mengevaluasi indikasi, kontraindikasi, dan riwayat alergi sebelum input.</div></div>`;
       }
     };
 
@@ -4505,7 +4633,6 @@
     // v10.1.0: keluhan yang diubah di sini ikut mengubah Keluhan Utama & Anamnesa di
     // halaman (langsung), lalu Diagnosis (saat selesai mengetik / sebelum INPUT RESEP).
     let syncedText = String(anamnesisEl.value || "").trim();
-    let dxSyncedText = syncedText;
     let dxSyncPromise = null;
     const syncStatusEl = shade.querySelector("#ak-medgroup-sync");
     const syncComplaintText = () => {
@@ -4519,26 +4646,48 @@
       setAnamnesisSource("Keluhan Utama");
       if (syncStatusEl) syncStatusEl.textContent = "✓ Keluhan Utama & Anamnesa di halaman diperbarui.";
     };
+    // Keadaan halaman terakhir (keluhan + diagnosis terpilih). Diagnosis halaman hanya
+    // diubah bila salah satunya berubah.
+    let committedComplaint = String(anamnesisEl.value || "").trim();
+    let committedDxKeys = selectedDxKeys().join(",");
+    let dxSyncAgain = false;
+    let dxSyncTimer = null;
     const syncDiagnosis = () => {
+      clearTimeout(dxSyncTimer);
+      if (!isMedicalRecordCreatePage()) return Promise.resolve();
+      if (dxSyncPromise) {
+        dxSyncAgain = true;
+        return dxSyncPromise;
+      }
       const t = String(anamnesisEl.value || "").trim();
-      if (!t || t === dxSyncedText || !isMedicalRecordCreatePage()) return Promise.resolve();
-      if (dxSyncPromise) return dxSyncPromise;
+      computeDxCandidates();
+      const keys = selectedDxKeys();
+      if (t === committedComplaint && keys.join(",") === committedDxKeys) return Promise.resolve();
       syncComplaintText();
       dxSyncPromise = runTask("PERBARUI DIAGNOSIS", async () => {
-        if (syncStatusEl) syncStatusEl.textContent = "⏳ Memperbarui diagnosis…";
-        const r = await updateDiagnosisFromComplaint(t);
-        dxSyncedText = t;
+        let note = "diagnosis tidak dikenali dari keluhan; Diagnosa/ICD tidak diubah";
+        if (keys.length || dxChoiceMade()) {
+          if (syncStatusEl) syncStatusEl.textContent = "⏳ Memperbarui diagnosis…";
+          note = (await applyDiagnosesToPage(keys.map(dxByKey).filter(Boolean))).note;
+        }
         committedComplaint = t;
-        if (r.dx) committedDiagnosis = r.dx;
-        presetDiagnosis = committedDiagnosis;
-        if (syncStatusEl) syncStatusEl.textContent = `✓ Keluhan Utama & Anamnesa diperbarui · Diagnosis: ${r.note}`;
-        renderDx(selectedIcdEntries(), readFieldText("Diagnosa"));
+        committedDxKeys = keys.join(",");
+        if (syncStatusEl) syncStatusEl.textContent = `✓ Keluhan Utama & Anamnesa diperbarui · Diagnosis: ${note}`;
         renderDxPreview();
+        renderDx(selectedIcdEntries(), readFieldText("Diagnosa"));
         resuggest();
       }).finally(() => {
         dxSyncPromise = null;
+        if (dxSyncAgain) {
+          dxSyncAgain = false;
+          return syncDiagnosis();
+        }
       });
       return dxSyncPromise;
+    };
+    const scheduleDxSync = () => {
+      clearTimeout(dxSyncTimer);
+      dxSyncTimer = setTimeout(syncDiagnosis, 700);
     };
     anamnesisEl.addEventListener("change", () => {
       clearTimeout(anamnesisTimer);
@@ -5045,6 +5194,16 @@
     .akm-dxp-tag{margin-left:auto!important;padding:1px 8px!important;border-radius:999px!important;background:#2563eb!important;color:#fff!important;
       font:700 10.5px/1.5 ${AK_FONT}!important;}
     .akm-dxp-tag.ok{background:#16a34a!important;}
+    .akm-dxp-opt{display:flex!important;align-items:center!important;gap:8px!important;margin-top:4px!important;padding:5px 8px!important;
+      border:1px solid #dbeafe!important;border-radius:8px!important;background:#fff!important;cursor:pointer!important;}
+    .akm-dxp-opt.on{border-color:#60a5fa!important;background:#f0f7ff!important;}
+    .akm-dxp-opt input{width:16px!important;height:16px!important;margin:0!important;flex:none!important;}
+    .akm-dxp-opt > span:first-of-type{flex:1!important;min-width:0!important;}
+    .akm-dxp-opt small{display:block!important;}
+    .akm-dxp-main{font:700 10px/1.4 ${AK_FONT}!important;font-style:normal!important;color:#0369a1!important;background:#e0f2fe!important;
+      border-radius:999px!important;padding:0 6px!important;margin-left:4px!important;}
+    .akm-dxp-add{display:block!important;width:100%!important;margin-top:6px!important;padding:5px 8px!important;border:1px solid #cbd5e1!important;
+      border-radius:8px!important;background:#fff!important;color:#334155!important;font:500 12.5px/1.4 ${AK_FONT}!important;}
     .akm-sync:empty{display:none!important;}
     .akm-sync{color:#15803d!important;font-weight:600!important;}
     .akm-vitals{margin-top:6px!important;font:600 12px/1.5 ${AK_FONT}!important;color:#334155!important;}
@@ -5248,6 +5407,8 @@
       DIAGNOSIS_TEMPLATES,
       DIAGNOSIS_FROM_COMPLAINT,
       detectDiagnosisFromComplaint,
+      diagnosisCandidates,
+      DIAGNOSIS_RELATED,
       assessVitals,
       formatVitalsSummary,
       parseStockText,
