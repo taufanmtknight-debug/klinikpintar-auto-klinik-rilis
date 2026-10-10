@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Klinik Pintar - AUTO KLINIK
 // @namespace    klinikpintar-auto
-// @version      10.0.9
+// @version      10.1.0
 // @description  AUTO KLINIK untuk os.klinikpintar.id — RESUME + DIAGNOSIS + RESEP, Resume, Paket Resep Golongan. Tidak pernah menekan Simpan otomatis.
 // @author       taufanmtknight-debug
 // @match        https://os.klinikpintar.id/*
@@ -34,7 +34,7 @@
 
   // Versi diambil dari header (GM_info) agar label launcher tidak pernah beda
   // dengan @version. Nilai cadangan WAJIB sama dengan @version (dicek oleh test).
-  const SCRIPT_VERSION_FALLBACK = "10.0.9";
+  const SCRIPT_VERSION_FALLBACK = "10.1.0";
   const VERSION =
     (typeof GM_info !== "undefined" && GM_info?.script?.version) ||
     SCRIPT_VERSION_FALLBACK;
@@ -1969,6 +1969,18 @@
 
   // Pilih kode ICD dx (urut prioritas) di kolom ICD 10 (2010), lalu tulis nama
   // diagnosisnya di kolom Diagnosa (teks biasa; ditambahkan bila sudah ada isi lain).
+  // v10.1.0: ICD & nama diagnosis yang diisi SCRIPT di halaman ini. Hanya ini yang
+  // boleh diganti otomatis saat keluhan diubah; ICD pilihan dokter tidak disentuh.
+  const autoDx = { href: "", codes: new Set(), names: [] };
+  function autoDxForPage() {
+    if (autoDx.href !== location.href) {
+      autoDx.href = location.href;
+      autoDx.codes.clear();
+      autoDx.names = [];
+    }
+    return autoDx;
+  }
+
   async function fillDiagnosis(dx) {
     const codes = dx.icd.map((c) => c.toUpperCase());
     let icdCode = codes.find(icdAlreadySelected) || null;
@@ -2009,9 +2021,60 @@
       if (!norm(current).includes(norm(name))) {
         diagnosisText = current ? `${current}, ${name}` : name;
         nativeSetValue(diag, diagnosisText);
+        autoDxForPage().names.push(name);
       }
     }
+    if (!skipped) autoDxForPage().codes.add(icdCode);
     return { diagCode: null, icdCode, skipped, diagnosisText };
+  }
+
+  // Hapus kartu ICD (tombol di kanan kartu "J06 Primer ..."). Tanpa konfirmasi di situs.
+  async function removeIcdCard(code) {
+    const el = [...document.querySelectorAll('[id^="txt_icd_10_code_"]')].find(
+      (e) => (norm(text(e)).match(/^([a-z]\d{2}(?:\.\d{1,2})?)/) || [])[1]?.toUpperCase() === code,
+    );
+    if (!el) return false;
+    let box = el.parentElement;
+    for (let i = 0; i < 4 && box && !box.querySelector(":scope > button"); i++) box = box.parentElement;
+    const btn = box?.querySelector(":scope > button");
+    if (!btn) return false;
+    btn.click();
+    return waitFor(() => (icdAlreadySelected(code) ? null : true), 4000, 100, `hapus ICD ${code}`)
+      .then(() => true)
+      .catch(() => false);
+  }
+
+  // v10.1.0: keluhan diubah di Paket Resep -> diagnosis ikut diperbarui. Diagnosis yang
+  // dulu diisi script diganti; ICD/teks yang diisi dokter sendiri dibiarkan.
+  async function updateDiagnosisFromComplaint(complaint) {
+    const vitals = assessVitals(readVitalsFromPage(), getPatientAgeFromIdentity()?.ageYears ?? null);
+    const found = detectDiagnosisFromComplaint(complaint, { vitals });
+    const dx = found && DIAGNOSIS_TEMPLATES.find((d) => d.key === found.key);
+    if (!dx) return { dx: null, note: "diagnosis tidak dikenali dari keluhan; Diagnosa/ICD tidak diubah" };
+    const codes = dx.icd.map((c) => c.toUpperCase());
+    if (codes.some(icdAlreadySelected)) return { dx, note: `${dx.label} sudah terisi` };
+    const auto = autoDxForPage();
+    const doctorIcd = selectedIcdEntries().filter((e) => !auto.codes.has(e.code));
+    // Ganti ICD buatan script.
+    for (const code of [...auto.codes]) {
+      if (await removeIcdCard(code)) auto.codes.delete(code);
+    }
+    // Ganti nama diagnosis buatan script di kolom Diagnosa.
+    const diag = textFieldByIdOrLabel("tf_diagnosis", "Diagnosa", ["Masukkan diagnosa"]);
+    if (diag && auto.names.length) {
+      let t = String(diag.value || "");
+      for (const n of auto.names) t = t.split(n).join("");
+      t = t.replace(/\s*,\s*(?=,|$)/g, "").replace(/^\s*,\s*/, "").trim();
+      nativeSetValue(diag, t);
+      auto.names = [];
+    }
+    const r = await fillDiagnosis(dx);
+    return {
+      dx,
+      note:
+        `${dx.label} (ICD ${r.icdCode})` +
+        (doctorIcd.length ? ` · ICD dokter dibiarkan: ${doctorIcd.map((e) => e.code).join(", ")}` : ""),
+    };
   }
 
   // Template ISPA lama (tidak ada di menu; dipertahankan untuk runTemplate("ispa")).
@@ -2649,6 +2712,94 @@
     }
     await waitFor(() => findItemSearchRoot(modal), 15000, 150, "kolom Cari Obat");
     return modal;
+  }
+
+  // ---------------- BHP (v10.1.0) ----------------
+  // Bahan habis pakai tindakan (strip, swab, lancet, spuit, handscoon) sekarang diisi di
+  // bagian BHP Klinik Pintar: dialog "Tambah BHP"/"Ubah BHP" -> Cari BHP -> Jumlah ->
+  // "Simpan Rencana BHP" (hanya menyimpan isian dialog ke form, bukan rekam medis).
+  function findBhpModal() {
+    return findDialogByTitle(/^(?:tambah|ubah) bhp\b/i);
+  }
+
+  async function openBhpForm() {
+    let modal = findBhpModal();
+    if (!modal) {
+      if (findPrescriptionModal() || findRacikanModal())
+        throw new Error("Dialog Resep masih terbuka. Simpan Resep atau Batal dulu, lalu input tindakan lagi.");
+      const btn =
+        document.getElementById("rekam-medis_resume_rme_tambah-bhp_click") ||
+        findButtonByTexts(["Tambah BHP", "Ubah BHP"]);
+      if (!btn || !visible(btn)) throw new Error("Tombol Tambah BHP tidak ditemukan di bagian Plan.");
+      click(btn);
+      modal = await waitFor(() => findBhpModal(), 9000, 120, "dialog BHP");
+    }
+    await waitDialogReady(modal, "daftar BHP", 30000);
+    await waitFor(() => findItemSearchRoot(findBhpModal() || modal), 15000, 150, "kolom Cari BHP");
+    return modal;
+  }
+
+  // list: [{ item, total }] (jumlah per item sudah dijumlahkan). Mengembalikan catatan.
+  async function addBhpItems(list) {
+    const modal = await openBhpForm();
+    const getModal = () => findBhpModal() || modal;
+    const notes = [];
+    for (const m of list) {
+      const item = ITEMS[m.item];
+      if (!item) throw new Error(`BHP tidak terdaftar: ${m.item}`);
+      const qtyWanted = String(m.total);
+      const existed = !!itemRowFor(getModal(), item.target);
+      const row = await addItemFromSearch(getModal, item, "BHP");
+      const qty = [...row.querySelectorAll('input:not([type="hidden"])')].find(
+        (i) => visible(i) && !i.disabled && !i.readOnly && !i.closest(MS_ROOT),
+      );
+      if (!qty) throw new Error(`Kolom jumlah ${item.target} tidak ditemukan.`);
+      // Sudah ada (diisi dokter / proses sebelumnya): jumlah tidak dikurangi.
+      if (!existed || Number(qty.value || 0) < Number(qtyWanted)) {
+        await setRecipeInputVerified(qty, qtyWanted, `Jumlah ${item.target}`);
+      }
+      if (existed) notes.push(`${item.target.replace(/^BPJS -- /, "")} sudah ada`);
+      const stock = readStockNear(qty);
+      if (stock != null && Number(qtyWanted) > stock)
+        notes.push(`stok ${item.target.replace(/^BPJS -- /, "")} tinggal ${stock}`);
+      LOG(`BHP OK: ${item.target} x ${qty.value}`);
+    }
+    const save = await waitFor(
+      () => {
+        const b = findButtonByTexts(["Simpan Rencana BHP", "Simpan BHP"], getModal());
+        return b && !b.disabled ? b : null;
+      },
+      5000,
+      100,
+      "tombol Simpan Rencana BHP",
+    ).catch(() => null);
+    if (!save) throw new Error("Tombol Simpan Rencana BHP belum aktif. Periksa isian BHP.");
+    click(save);
+    const closed = await waitFor(() => (findBhpModal() ? null : true), 8000, 150, "dialog BHP tertutup").catch(
+      () => false,
+    );
+    if (!closed) {
+      const errors = racikanValidationErrors(getModal());
+      throw new Error(`BHP belum tersimpan${errors ? `: ${errors}` : ""}. Periksa dialog BHP.`);
+    }
+    return notes;
+  }
+
+  // Jumlahkan BHP dari beberapa tindakan (mis. alkohol swab untuk cek gula + imunisasi).
+  function collectBhpForActions(actionKeys) {
+    const totals = new Map();
+    const labels = [];
+    for (const key of [...new Set(actionKeys || [])]) {
+      const action = PACKAGE_ACTIONS.find((x) => x.key === key);
+      const tpl = action ? RECIPE_TEMPLATES[action.key] : null;
+      if (!action || !tpl?.medicines?.length) continue;
+      labels.push(action.label);
+      for (const m of tpl.medicines) {
+        const qty = Number(m.total || m.dose || 1) || 1;
+        totals.set(m.item, (totals.get(m.item) || 0) + qty);
+      }
+    }
+    return { labels, items: [...totals].map(([item, total]) => ({ item, total: String(total) })) };
   }
 
   // Mengembalikan daftar obat yang dilewati karena SUDAH ADA di form resep.
@@ -3873,7 +4024,7 @@
       }
       let added = false;
       for (const m of tpl.medicines) {
-        const id = identity(m, `Tindakan ${action.label}`);
+        const id = identity(m, `BHP ${action.label}`);
         if (id && seenMedicine.has(id)) {
           preview.notes.push(
             `Duplikat tindakan dilewati: ${action.label} → ${m.item}`,
@@ -3883,7 +4034,7 @@
         if (id) seenMedicine.add(id);
         preview.medicines.push({
           ...m,
-          sourceLabel: `Tindakan ${action.label}`,
+          sourceLabel: `BHP ${action.label}`,
         });
         added = true;
       }
@@ -3946,6 +4097,22 @@
       }
     };
 
+    // v10.1.0: tindakan (imunisasi, cek gula/kolesterol/asam urat) diisi di bagian BHP,
+    // LEBIH DULU, karena dialog BHP tidak bisa dibuka selama dialog Resep terbuka.
+    const bhp = collectBhpForActions(actionKeys);
+    for (const actionKey of [...new Set(actionKeys || [])]) {
+      if (!PACKAGE_ACTIONS.some((x) => x.key === actionKey) || !RECIPE_TEMPLATES[actionKey]?.medicines?.length)
+        skipped.push(`Tindakan ${actionKey}: template belum tersedia`);
+    }
+    if (bhp.items.length) {
+      try {
+        const notes = await addBhpItems(bhp.items);
+        if (notes.length) skipped.push(`BHP: ${notes.join(", ")}`);
+      } catch (e) {
+        failedItems.push(`BHP ${bhp.labels.join(" + ")} (${String(e?.message || e).replace(/\.$/, "")})`);
+      }
+    }
+
     // Dipanggil di dalam runTask (kunci proses + status tombol ditangani di sana).
     for (const item of selected) {
       if (!isMedicationItemAllowedForGroup(item, group)) {
@@ -3976,16 +4143,6 @@
       }
     }
 
-    for (const actionKey of [...new Set(actionKeys || [])]) {
-      const action = PACKAGE_ACTIONS.find((x) => x.key === actionKey);
-      const tpl = action ? RECIPE_TEMPLATES[action.key] : null;
-      if (!action || !tpl?.medicines?.length) {
-        skipped.push(`Tindakan ${actionKey}: template belum tersedia`);
-        continue;
-      }
-      await addUniqueMedicines(tpl.medicines, `Tindakan ${action.label}`);
-    }
-
     let msg = `PAKET RESEP selesai: kategori ${group === "adult" ? "DEWASA" : "ANAK"}. Review resep sebelum Simpan Resep.`;
     if (failedItems.length) msg += ` GAGAL DIINPUT (tambahkan manual): ${failedItems.join("; ")}.`;
     if (skipped.length) msg += ` Catatan: ${skipped.join(", ")}.`;
@@ -4001,7 +4158,7 @@
       pageIcd
         .map((e) => DIAGNOSIS_TEMPLATES.find((d) => d.icd.some((c) => c.toUpperCase() === e.code)))
         .find(Boolean) || null;
-    const presetDiagnosis = options.diagnosis || icdDiagnosis;
+    let presetDiagnosis = options.diagnosis || icdDiagnosis;
     const old = document.getElementById("ak-medgroup-picker");
     if (old) old.remove();
     // Baca halaman SEBELUM overlay dipasang, agar kolom milik overlay tidak ikut terbaca.
@@ -4037,6 +4194,7 @@
       <div class="akm-sec-title">📝 Keluhan Utama <button id="ak-medgroup-resuggest" class="akm-link" type="button">↻ Baca ulang</button></div>
       <textarea id="ak-medgroup-anamnesis" class="ak-package-anamnesis" rows="3" placeholder="Keluhan Utama belum terbaca dari form. Ketik keluhan pasien di sini untuk mendapat saran obat."></textarea>
       <div id="ak-medgroup-anamnesis-source" class="akm-hint"></div>
+      <div id="ak-medgroup-sync" class="akm-hint akm-sync"></div>
       <div id="ak-medgroup-suggestion" class="ak-package-suggestion"></div>
     </section>
     <section class="akm-sec akm-preview">
@@ -4049,7 +4207,7 @@
       <div id="ak-medgroup-items" class="akm-items"></div>
     </section>
     <section class="akm-sec akm-tindakan">
-      <div class="akm-sec-title">🩹 Resep tindakan <small>(opsional)</small></div>
+      <div class="akm-sec-title">🩹 Tindakan → BHP <small>(opsional)</small></div>
       <div class="akm-choices" id="ak-medgroup-actions"></div>
     </section>
    </div>
@@ -4103,7 +4261,7 @@
     if (weightInfo) weight.value = String(weightInfo.kg);
     const setAnamnesisSource = (source) => {
       anamnesisSourceEl.textContent = source
-        ? `Dari form ${source}. Boleh diubah, saran obat ikut berubah.`
+        ? `Dari form ${source}. Bila diubah, Keluhan Utama, Anamnesa, dan Diagnosis di halaman ikut diperbarui.`
         : "Keluhan Utama tidak ditemukan di halaman. Ketik keluhan untuk mendapat saran.";
     };
     {
@@ -4115,18 +4273,19 @@
         ? `<b>TTV:</b> ${escapePreviewHtml(summary)}${flagsHtml ? `<div>${flagsHtml}</div>` : ""}`
         : '<span class="akm-hint">TTV kunjungan ini belum terbaca.</span>';
     }
-    {
-      const rows = pageIcd.map(
+    const renderDx = (icdList, diagText) => {
+      const rows = icdList.map(
         (e) =>
           `<div class="akm-dx-row"><b>${escapePreviewHtml(e.code)}</b> <span class="akm-dx-role">${e.role}</span> ${escapePreviewHtml(e.name)}</div>`,
       );
-      if (pageDiagnosisText) rows.push(`<div class="akm-hint">Diagnosa: ${escapePreviewHtml(pageDiagnosisText)}</div>`);
+      if (diagText) rows.push(`<div class="akm-hint">Diagnosa: ${escapePreviewHtml(diagText)}</div>`);
       if (presetDiagnosis)
         rows.push(`<div class="akm-hint">Saran obat ikut diagnosis <b>${escapePreviewHtml(presetDiagnosis.label)}</b>.</div>`);
       shade.querySelector("#ak-medgroup-dx").innerHTML = rows.length
         ? rows.join("")
         : '<span class="akm-hint akm-missing">Belum ada Diagnosa / ICD 10 yang terisi.</span>';
-    }
+    };
+    renderDx(pageIcd, pageDiagnosisText);
     anamnesisEl.value = pageComplaint.text;
     setAnamnesisSource(pageComplaint.source);
 
@@ -4300,7 +4459,51 @@
     let anamnesisTimer = null;
     anamnesisEl.addEventListener("input", () => {
       clearTimeout(anamnesisTimer);
-      anamnesisTimer = setTimeout(() => resuggest(), 500);
+      anamnesisTimer = setTimeout(() => {
+        resuggest();
+        syncComplaintText();
+      }, 500);
+    });
+
+    // v10.1.0: keluhan yang diubah di sini ikut mengubah Keluhan Utama & Anamnesa di
+    // halaman (langsung), lalu Diagnosis (saat selesai mengetik / sebelum INPUT RESEP).
+    let syncedText = String(anamnesisEl.value || "").trim();
+    let dxSyncedText = syncedText;
+    let dxSyncPromise = null;
+    const syncStatusEl = shade.querySelector("#ak-medgroup-sync");
+    const syncComplaintText = () => {
+      const t = String(anamnesisEl.value || "").trim();
+      if (!t || t === syncedText || !isMedicalRecordCreatePage()) return;
+      for (const [id, label] of [["tf_complaint", "Keluhan Utama"], ["tf_anamese", "Anamnesa"]]) {
+        const el = textFieldByIdOrLabel(id, label, [label]);
+        if (el) nativeSetValue(el, t);
+      }
+      syncedText = t;
+      setAnamnesisSource("Keluhan Utama");
+      if (syncStatusEl) syncStatusEl.textContent = "✓ Keluhan Utama & Anamnesa di halaman diperbarui.";
+    };
+    const syncDiagnosis = () => {
+      const t = String(anamnesisEl.value || "").trim();
+      if (!t || t === dxSyncedText || !isMedicalRecordCreatePage()) return Promise.resolve();
+      if (dxSyncPromise) return dxSyncPromise;
+      syncComplaintText();
+      dxSyncPromise = runTask("PERBARUI DIAGNOSIS", async () => {
+        if (syncStatusEl) syncStatusEl.textContent = "⏳ Memperbarui diagnosis…";
+        const r = await updateDiagnosisFromComplaint(t);
+        dxSyncedText = t;
+        if (r.dx) presetDiagnosis = r.dx;
+        if (syncStatusEl) syncStatusEl.textContent = `✓ Keluhan Utama & Anamnesa diperbarui · Diagnosis: ${r.note}`;
+        renderDx(selectedIcdEntries(), readFieldText("Diagnosa"));
+        resuggest();
+      }).finally(() => {
+        dxSyncPromise = null;
+      });
+      return dxSyncPromise;
+    };
+    anamnesisEl.addEventListener("change", () => {
+      clearTimeout(anamnesisTimer);
+      resuggest();
+      syncDiagnosis();
     });
     shade
       .querySelector("#ak-medgroup-resuggest")
@@ -4345,6 +4548,11 @@
         if (!itemKeys.length && !actionKeys.length) {
           notify("Pilih minimal satu obat atau tindakan.", "warn", 7000);
           return;
+        }
+        // v10.1.0: keluhan yang baru diubah -> perbarui halaman & diagnosis dulu.
+        if (isMedicalRecordCreatePage()) {
+          clearTimeout(anamnesisTimer);
+          await syncDiagnosis().catch(() => {});
         }
         // v10.0.8: picker tetap terbuka (pilihan tidak hilang) bila belum bisa input.
         if (!isMedicalRecordCreatePage()) {
@@ -4785,6 +4993,8 @@
     .akm-dx-row b{color:#0f172a!important;}
     .akm-dx-role{font:700 10px/1.4 ${AK_FONT}!important;color:#0369a1!important;background:#f0f9ff!important;border:1px solid #bae6fd!important;
       border-radius:999px!important;padding:0 6px!important;margin-right:4px!important;}
+    .akm-sync:empty{display:none!important;}
+    .akm-sync{color:#15803d!important;font-weight:600!important;}
     .akm-vitals{margin-top:6px!important;font:600 12px/1.5 ${AK_FONT}!important;color:#334155!important;}
     .akm-vflag{display:inline-block!important;margin:3px 4px 0 0!important;padding:1px 7px!important;border-radius:999px!important;font:700 11px/1.5 ${AK_FONT}!important;}
     .akm-vflag.warn{background:#fef3c7!important;color:#92400e!important;}
@@ -5000,6 +5210,7 @@
       buildLivePreviewHtml,
       makeNyeriUluHatiAnakRecipe,
       makeZincChildRecipe,
+      collectBhpForActions,
     });
     return;
   }
