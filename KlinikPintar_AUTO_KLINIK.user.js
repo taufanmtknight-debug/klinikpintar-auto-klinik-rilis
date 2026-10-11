@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Klinik Pintar - AUTO KLINIK
 // @namespace    klinikpintar-auto
-// @version      10.2.0
+// @version      10.2.1
 // @description  AUTO KLINIK untuk os.klinikpintar.id — RESUME + DIAGNOSIS + RESEP, Resume, Paket Resep Golongan. Tidak pernah menekan Simpan otomatis.
 // @author       taufanmtknight-debug
 // @match        https://os.klinikpintar.id/*
@@ -34,7 +34,7 @@
 
   // Versi diambil dari header (GM_info) agar label launcher tidak pernah beda
   // dengan @version. Nilai cadangan WAJIB sama dengan @version (dicek oleh test).
-  const SCRIPT_VERSION_FALLBACK = "10.2.0";
+  const SCRIPT_VERSION_FALLBACK = "10.2.1";
   const VERSION =
     (typeof GM_info !== "undefined" && GM_info?.script?.version) ||
     SCRIPT_VERSION_FALLBACK;
@@ -47,7 +47,14 @@
       : (css) => {
           const style = document.createElement("style");
           style.textContent = css;
-          (document.head || document.documentElement).appendChild(style);
+          // v10.2.1: pada document-start <html> bisa belum ada; pasang begitu tersedia.
+          const mount = () => {
+            const root = document.head || document.documentElement;
+            if (root) root.appendChild(style);
+            else setTimeout(mount, 10);
+          };
+          mount();
+          return style;
         };
 
   // ============================================================
@@ -1174,13 +1181,14 @@
     },
     {
       label: "Kolesterol",
-      pattern: /kolesterol|dislipid\w*|lemak\s+darah/,
+      // v10.2.1: "cek kolesterol" = permintaan pemeriksaan saja, bukan indikasi obat.
+      pattern: /(?<!(?:cek|periksa|tes)\s+)kolesterol|dislipid\w*|lemak\s+darah/,
       adult: ["SIMVASTATIN_10"],
       child: [],
     },
     {
       label: "Asam urat",
-      pattern: /asam\s+urat|\bgout\b|hiperurisemi\w*/,
+      pattern: /(?<!(?:cek|periksa|tes)\s+)asam\s+urat|\bgout\b|hiperurisemi\w*/,
       adult: ["ALLOPURINOL_100"],
       child: [],
     },
@@ -1218,7 +1226,7 @@
     },
     {
       label: "Imunisasi",
-      pattern: /imunisasi|vaksin\w*|\bbcg\b|\bdpt\w*|\bpolio\b|\bopv\b|\bipv\b|\bpcv\b|\brota\w*|campak\s+rubel\w*|\bmr\b|hepatitis\s+b\s+0|\bhb[\s-]?0\b|\btt\b|\btd\b|suntik\s+(?:tetanus|imunisasi)/,
+      pattern: /imunisasi|vaksin\w*|\bbcg\b|\bdpt\w*|\bpolio\b|\bopv\b|\bipv\b|\bpcv\b|\brota\w*|campak\s+rubel\w*|\bmr\b|hepatitis\s+b\s+0|\bhb[\s-]?0\b|\btt\s?[1-5]\b|suntik\s+(?:tetanus|imunisasi|tt\b|td\b)/,
       adult: [],
       child: [],
       actions: ["IMUNISASI"],
@@ -1375,7 +1383,8 @@
     { key: "FARINGITIS", tier: 1, pattern: /faring\w*/ },
     { key: "SINUSITIS", tier: 1, pattern: /sinusitis|\bsinus\b/ },
     { key: "OMA", tier: 1, pattern: /(?:sakit|nyeri)\s+telinga|telinga\b[^.,;\n]{0,15}?(?:sakit|nyeri|berair|bernanah|cairan)|otitis|congek|kopok/ },
-    { key: "ASMA", tier: 1, pattern: /\basma\b|asthma|mengi|\bsesak\b/ },
+    // v10.2.1: "sesak" saja tidak lagi mengalahkan batuk/pilek (ISPA); asma/mengi tetap utama.
+    { key: "ASMA", tier: 1, pattern: /\basma\b|asthma|mengi/ },
     { key: "RINITIS_ALERGI", tier: 1, pattern: /rinitis|rhinitis|alergi\s+(?:debu|dingin|cuaca)|bersin[\s-]+bersin\s+(?:tiap|setiap|saat|kalau|jika)/ },
     { key: "ISPA", tier: 1, pattern: /batuk|pilek|\bbat?pil\b|\bflu\b|influenza|bersin|hidung\s+(?:tersumbat|mampet|meler)|ingus|\bispa\b|common cold|tenggorok\w*\s+(?:sakit|nyeri|perih|gatal)|(?:nyeri|sakit|perih|gatal)\s+(?:saat\s+)?(?:menelan|telan|tenggorok\w*)|radang\s+tenggorok\w*/ },
     { key: "KONJUNGTIVITIS", tier: 1, pattern: /mata\s+(?:merah|belek\w*|gatal|berair)|belekan|konjungtiv\w*|\bbelek\b/ },
@@ -1387,15 +1396,15 @@
     { key: "NYERI_PERUT", tier: 1, pattern: /(?:sakit|nyeri)\s+perut|perut\s+(?:sakit|nyeri|melilit|mules)|melilit|kolik/ },
     { key: "ISK", tier: 1, pattern: /anyang|disuria|\bisk\b|infeksi\s+saluran\s+kemih|(?:nyeri|sakit|perih|panas)\s+(?:saat\s+)?(?:bak|kencing|berkemih|pipis)|(?:bak|kencing|pipis)\s+(?:perih|panas|sakit|nyeri)/ },
     { key: "DISMENORE", tier: 1, pattern: /(?:nyeri|sakit)\s+(?:saat\s+)?(?:haid|mens\w*)|(?:haid|mens\w*)\s+(?:nyeri|sakit)|dismenore\w*/ },
-    { key: "PULPITIS", tier: 1, pattern: /(?:sakit|nyeri|ngilu)\s+gigi|gigi\s+(?:sakit|nyeri|ngilu|bengkak|berlubang|goyang)|pulpitis|gusi\s+bengkak/ },
-    { key: "ABSES", tier: 1, pattern: /bisul|abses|bernanah|furunkel|luka\b[^.;\n]{0,40}?(?:infeksi|meradang|radang|bernanah|berair|bengkak)/ },
+    { key: "PULPITIS", tier: 1, pattern: /(?:sakit|nyeri|ngilu)\s+gigi|gigi\s+(?:sakit|nyeri|ngilu|bengkak|berlubang|goyang)|pulpitis|gusi\s+bengkak|abses\s+gigi/ },
+    { key: "ABSES", tier: 1, pattern: /bisul|(?<!gigi\s)abses(?!\s+gigi)|bernanah|furunkel|luka\b[^.;\n]{0,40}?(?:infeksi|meradang|radang|bernanah|berair|bengkak)/ },
     { key: "VARICELLA", tier: 1, pattern: /cacar\s+air|varisela|varicella|\bcacar\b(?!\s+(?:ular|api))/ },
     { key: "ZOSTER", tier: 1, pattern: /herpes\s+zoster|\bzoster\b|cacar\s+(?:ular|api)|dompo/ },
     { key: "TINEA", tier: 1, pattern: /kurap|kadas|tinea|jamur|kutu\s+air|\bgatal\s+selangkangan/ },
     { key: "PANU", tier: 1, pattern: /\bpanu\b|versikolor|versicolor/ },
     { key: "STOMATITIS", tier: 1, pattern: /sariawan|stomatitis|\baft\w*/ },
     { key: "URTIKARIA", tier: 1, pattern: /biduran|kaligata|urtikaria|bentol|\bbidur/ },
-    { key: "DERMATITIS", tier: 1, pattern: /ruam|eksim|eksema|dermatitis|gatal/ },
+    { key: "DERMATITIS", tier: 1, pattern: /ruam|eksim|eksema|dermatitis|(?<!(?:tenggorok\w*|mata|telinga|hidung)\s+)gatal(?!\s+(?:di\s+)?(?:tenggorok|mata|telinga|hidung))/ },
     { key: "IMUNISASI", tier: 1, pattern: /imunisasi|vaksin\w*|\bbcg\b|\bdpt\w*|\bpolio\b|\bopv\b|\bipv\b|\bpcv\b|campak\s+rubel\w*|\bmr\b|\bhb[\s-]?0\b/ },
     { key: "OA_GENU", tier: 1, pattern: /(?:nyeri|sakit|ngilu)\s+(?:di\s+)?lutut|lutut\s+(?:nyeri|sakit|kaku|bengkak|ngilu)|osteoart\w*|pengapuran/ },
     { key: "LBP", tier: 1, pattern: /(?:nyeri|sakit|pegal)\s+(?:di\s+)?(?:pinggang|punggung)|low back pain|\blbp\b|encok/ },
@@ -1409,6 +1418,7 @@
     { key: "CEPHALGIA", tier: 3, pattern: /(?:sakit|nyeri)\s+kepala|pusing|cekot|ce[fp]h?algia|migr[ae]i?n/ },
     // v10: mual/muntah saja = keluhan penyerta; kalah dari pusing, diare, dll.
     { key: "DISPEPSIA", tier: 3, pattern: /mual|muntah/ },
+    { key: "ASMA", tier: 3, pattern: /\bsesak\b/ },
     { key: "MYALGIA", tier: 3, pattern: /pegal|pegel|linu|(?:nyeri|sakit)\s+(?:otot|badan)|m[iy]algia/ },
     { key: "FEVER", tier: 4, pattern: /demam|febris|meriang|sumeng|(?:badan|suhu)\s+(?:terasa\s+)?panas|panas\s+(?:badan|tinggi|naik|sejak|\d)/ },
   ];
@@ -1455,15 +1465,35 @@
       note: "Paracetamol tidak disarankan terpisah karena Alpara sudah mengandung paracetamol",
     },
     {
-      when: "IBUPROFEN_400",
-      drop: ["DICLOFENAC_50"],
-      note: "Diclofenac tidak disarankan bersamaan dengan Ibuprofen (sama-sama NSAID)",
+      // v10.2.1: Alpara berisi CTM (antihistamin).
+      when: "ALPARA_DEWASA",
+      drop: ["CETIRIZINE_10_DEWASA", "LORATADINE_10_DEWASA", "CTM_4_DEWASA"],
+      note: "Antihistamin lain tidak disarankan karena Alpara sudah mengandung CTM",
     },
     {
       when: "BAPIL_2_ANAK",
       drop: ["ISPA_ANAK"],
       note: "Racikan ISPA Anak diganti Racikan Bapil 2 (berisi ambroxol untuk dahak)",
     },
+    {
+      // v10.2.1: racikan ISPA / Bapil 2 anak berisi CTM (antihistamin).
+      when: "ISPA_ANAK",
+      drop: ["CETIRIZINE_RACIKAN_BARU"],
+      note: "Racikan Cetirizine tidak disarankan karena racikan batuk sudah berisi CTM",
+    },
+    {
+      when: "BAPIL_2_ANAK",
+      drop: ["CETIRIZINE_RACIKAN_BARU"],
+      note: "Racikan Cetirizine tidak disarankan karena racikan batuk sudah berisi CTM",
+    },
+  ];
+
+  // v10.2.1: dari obat satu golongan hanya SATU yang disarankan (yang disarankan
+  // lebih dulu: diagnosis, lalu urutan aturan keluhan).
+  const ANAMNESIS_SUGGESTION_CLASSES = [
+    { label: "NSAID", keys: ["IBUPROFEN_400", "DICLOFENAC_50", "ASAM_MEFENAMAT_500_DEWASA"] },
+    { label: "kortikosteroid", keys: ["DEXAMETHASONE_05", "METHYLPREDNISOLONE_4_DEWASA"] },
+    { label: "antihistamin", keys: ["CETIRIZINE_10_DEWASA", "LORATADINE_10_DEWASA", "CTM_4_DEWASA"] },
   ];
 
   // ============================================================
@@ -2879,7 +2909,7 @@
       const recipe = medicines[i];
       const drug = buildDrugForItem(recipe.item, recipe);
       // Obat yang sudah ada di resep (Ubah Obat / paket sebelumnya) tidak ditambah lagi.
-      if (itemRowFor(modal, drug.key)) {
+      if (itemRowFor(findPrescriptionModal() || modal, drug.key)) {
         alreadyInRecipe.push(drug.key);
         LOG(`Resep ${i + 1}/${medicines.length}: ${drug.key} sudah ada di resep -> dilewati`);
         continue;
@@ -2889,7 +2919,8 @@
       await configureMedicationRow(drug);
       added.push(drug);
       // Peringatan stok (resep tetap diisi; dokter yang memutuskan).
-      const qtyInput = recipeRowFields(medicationRowFor(drug)).total;
+      const addedRow = medicationRowFor(drug);
+      const qtyInput = addedRow ? recipeRowFields(addedRow).total : null;
       const stock = qtyInput && readStockNear(qtyInput);
       if (stock != null && String(drug.total ?? "").trim() !== "" && Number(drug.total) > stock)
         lowStock.push(`${drug.key.replace(/^BPJS -- /, "")} (butuh ${drug.total}, sisa ${stock})`);
@@ -3596,7 +3627,9 @@
       return true;
     const after = lowerText.slice(end, end + 40);
     // v9.4: penanda negasi boleh berjarak 2 kata ("alergi obat disangkal", "demam tidak ada").
-    return /^[a-z]*(?:\s+[a-z]+){0,2}\s*(?::\s*)?(?:\(\s*-\s*\)|\(\s*neg|-\s*(?:[,.;\n]|$)|negatif|disangkal|tidak\s+ada)/.test(
+    // v10.2.1: "tidak ada" hanya menegasikan bila menutup frasa ("demam tidak ada, batuk").
+    // "batuk tidak ada sesak" / "sakit kepala tidak ada demam" = yang dinegasikan kata sesudahnya.
+    return /^[a-z]*(?:\s+[a-z]+){0,2}\s*(?::\s*)?(?:\(\s*-\s*\)|\(\s*neg|-\s*(?:[,.;\n]|$)|negatif|disangkal|tidak\s+ada\s*(?:[,.;:\n)]|$))/.test(
       after,
     );
   }
@@ -3658,6 +3691,17 @@
       for (const match of result.matches)
         match.keys = match.keys.filter((k) => !o.drop.includes(k));
       result.notes.push(o.note);
+    }
+    const itemName = (k) => MEDICATION_ITEMS_FLAT.find((x) => x.key === k)?.label || k;
+    for (const c of ANAMNESIS_SUGGESTION_CLASSES) {
+      const hit = result.keys.filter((k) => c.keys.includes(k));
+      if (hit.length < 2) continue;
+      const drop = hit.slice(1);
+      result.keys = result.keys.filter((k) => !drop.includes(k));
+      for (const match of result.matches) match.keys = match.keys.filter((k) => !drop.includes(k));
+      result.notes.push(
+        `${drop.map(itemName).join(" & ")} tidak disarankan bersamaan dengan ${itemName(hit[0])} (sama-sama ${c.label})`,
+      );
     }
 
     // v9.9: TTV sebagai pertimbangan terapi (catatan, tidak mencentang obat).
@@ -4177,11 +4221,27 @@
         if (notes.length) skipped.push(`BHP: ${notes.join(", ")}`);
       } catch (e) {
         failedItems.push(`BHP ${bhp.labels.join(" + ")} (${String(e?.message || e).replace(/\.$/, "")})`);
+        // v10.2.1: dialog BHP yang gagal ditutup (Batal) supaya dialog Resep bisa dibuka.
+        const bhpModal = findBhpModal();
+        const batal = bhpModal && findButtonByTexts(["Batal"], bhpModal);
+        if (batal) {
+          click(batal);
+          await waitFor(() => (findBhpModal() ? null : true), 4000, 150, "dialog BHP tertutup").catch(() => false);
+        }
       }
     }
 
     // Dipanggil di dalam runTask (kunci proses + status tombol ditangani di sana).
+    // v10.2.1: racikan yang gagal tidak lagi menghentikan seluruh paket. Hanya bila form
+    // racikan masih terbuka (bahan berikutnya bisa tercampur), sisa pilihan dihentikan
+    // dan disebutkan di notifikasi akhir.
+    const notDone = [];
+    let stopped = false;
     for (const item of selected) {
+      if (stopped) {
+        if (isMedicationItemAllowedForGroup(item, group)) notDone.push(item.label);
+        continue;
+      }
       if (!isMedicationItemAllowedForGroup(item, group)) {
         skipped.push(
           `${item.label}: tidak tersedia untuk kategori ${group === "adult" ? "DEWASA" : "ANAK"}`,
@@ -4195,7 +4255,13 @@
         continue;
       }
 
-      await addUniqueMedicines(resolved.medicines, item.label);
+      try {
+        await addUniqueMedicines(resolved.medicines, item.label);
+      } catch (e) {
+        failedItems.push(`${item.label} (${String(e?.message || e).replace(/\.$/, "")})`);
+        stopped = true;
+        continue;
+      }
 
       for (const rc of resolved.racikans || []) {
         const rid = String(
@@ -4206,12 +4272,22 @@
           continue;
         }
         seenRacikan.add(rid);
-        await addRacikan(rc.tpl);
+        try {
+          await addRacikan(rc.tpl);
+        } catch (e) {
+          failedItems.push(`${rc.tpl?.title || item.label} (${String(e?.message || e).replace(/\.$/, "")})`);
+          if (findRacikanModal()) {
+            stopped = true;
+            break;
+          }
+        }
       }
     }
 
     let msg = `PAKET RESEP selesai: kategori ${group === "adult" ? "DEWASA" : "ANAK"}. Review resep sebelum Simpan Resep.`;
     if (failedItems.length) msg += ` GAGAL DIINPUT (tambahkan manual): ${failedItems.join("; ")}.`;
+    if (notDone.length)
+      msg += ` BELUM DIINPUT karena form racikan masih terbuka (Simpan Racikan / Batal dulu): ${notDone.join(", ")}.`;
     if (skipped.length) msg += ` Catatan: ${skipped.join(", ")}.`;
     notify(msg, failedItems.length ? "error" : skipped.length ? "warn" : "success", failedItems.length ? 25000 : 12000);
   }
@@ -4231,6 +4307,11 @@
     ];
     // Saran obat ikut semua diagnosis terpilih (v10.2.0: bisa lebih dari 1).
     let presetDiagnoses = options.diagnosis ? [options.diagnosis] : pageDiagnoses();
+    // v10.2.1: umur/BB/keluhan milik pasien halaman ini. Bila halaman berganti (pasien
+    // lain), Paket Resep ditutup supaya data pasien lama tidak terisi ke pasien baru.
+    const pageKey = () => location.pathname + location.search;
+    const openedPage = pageKey();
+    const samePage = () => pageKey() === openedPage;
     const old = document.getElementById("ak-medgroup-picker");
     if (old) old.remove();
     // Baca halaman SEBELUM overlay dipasang, agar kolom milik overlay tidak ikut terbaca.
@@ -4294,11 +4375,22 @@
     const onKey = (ev) => {
       if (ev.key === "Escape") close();
     };
+    const onRoute = () =>
+      setTimeout(() => {
+        if (shade.isConnected && !samePage()) {
+          close();
+          notify("Paket Resep ditutup karena halaman pasien berganti. Buka lagi di halaman pasien ini.", "warn", 9000);
+        }
+      }, 60);
+    const routeEvents = ["auto-ispa-route-change", "popstate", "hashchange"];
     const close = () => {
       document.removeEventListener("keydown", onKey, true);
+      for (const ev of routeEvents) window.removeEventListener(ev, onRoute);
+      markObserver.disconnect();
       shade.remove();
     };
     document.addEventListener("keydown", onKey, true);
+    for (const ev of routeEvents) window.addEventListener(ev, onRoute);
     shade.querySelector(".ak-rp-x")?.addEventListener("click", close);
     shade.querySelector("#ak-medgroup-close")?.addEventListener("click", close);
     // Sorotan pilihan tercentang (pengganti :has() untuk browser HP lama).
@@ -4307,7 +4399,8 @@
         l.classList.toggle("akm-on", !!l.querySelector("input:checked"));
       });
     shade.addEventListener("change", markChecked);
-    new MutationObserver(markChecked).observe(shade, { childList: true, subtree: true });
+    const markObserver = new MutationObserver(markChecked);
+    markObserver.observe(shade, { childList: true, subtree: true });
     const weight = shade.querySelector("#ak-medgroup-weight"),
       weightSourceEl = shade.querySelector("#ak-medgroup-weight-source"),
       status = shade.querySelector("#ak-medgroup-group-status"),
@@ -4381,6 +4474,12 @@
         .filter((c) => (c.source === "utama" && !dxUserRemoved.has(c.key)) || dxUserAdded.includes(c.key))
         .map((c) => c.key);
     const dxChoiceMade = () => dxUserAdded.length > 0 || dxUserRemoved.size > 0;
+    // Keadaan halaman terakhir (keluhan + diagnosis terpilih). Diagnosis halaman hanya
+    // diubah bila salah satunya berubah (diisi saat dibuka, lihat bawah).
+    let committedComplaint = null;
+    let committedDxKeys = "";
+    const dxPending = () =>
+      String(anamnesisEl.value || "").trim() !== committedComplaint || selectedDxKeys().join(",") !== committedDxKeys;
     const renderDxPreview = () => {
       computeDxCandidates();
       const keys = selectedDxKeys();
@@ -4393,6 +4492,7 @@
         return;
       }
       const page = selectedIcdEntries();
+      const pending = dxPending();
       const sourceText = (c) =>
         c.source === "utama"
           ? `dari "${c.keyword}"`
@@ -4406,7 +4506,8 @@
           const dx = dxByKey(c.key);
           const on = keys.includes(c.key);
           const filled = dx.icd.some((code) => page.some((e) => e.code === code.toUpperCase()));
-          const tag = !on ? "" : filled ? "sudah terisi" : "akan dipilih";
+          // v10.2.1: "akan dipilih" hanya bila memang akan diisi ke halaman.
+          const tag = !on ? "" : filled ? "sudah terisi" : pending ? "akan dipilih" : "tidak diisi otomatis";
           return (
             `<label class="akm-dxp-opt${on ? " on" : ""}"><input type="checkbox" data-dx-key="${c.key}"${on ? " checked" : ""}>` +
             `<span><b>${escapePreviewHtml(dx.icd[0])}</b> ${escapePreviewHtml(dx.label)}${on && keys[0] === c.key ? ' <em class="akm-dxp-main">utama</em>' : ""}` +
@@ -4449,7 +4550,22 @@
       if (t?.matches?.("[data-dx-key]")) onDxChoice(t.getAttribute("data-dx-key"), t.checked);
       else if (t?.matches?.("[data-dx-add]")) onDxChoice(t.value, true);
     });
+    // v10.2.1: ICD yang sudah ada di halaman (diisi dokter / RESUME + DIAGNOSIS) menjadi
+    // diagnosis tercentang; diagnosis dari keluhan yang belum ada di halaman hanya
+    // ditawarkan. Halaman tanpa ICD: diagnosis dari keluhan diisi saat INPUT RESEP.
+    {
+      computeDxCandidates();
+      const pageDx = pageDiagnoses();
+      if (pageDx.length) {
+        for (const d of pageDx) if (d.key !== dxFound?.key) dxUserAdded.push(d.key);
+        if (dxFound && !pageDx.some((d) => d.key === dxFound.key)) dxUserRemoved.add(dxFound.key);
+      }
+      computeDxCandidates();
+      committedComplaint = String(anamnesisEl.value || "").trim();
+      committedDxKeys = pageIcd.length ? selectedDxKeys().join(",") : "";
+    }
     renderDxPreview();
+    renderDx(pageIcd, pageDiagnosisText);
     setAnamnesisSource(pageComplaint.source);
 
     // Simpan pilihan obat lintas perubahan kategori. Obat yang tidak sesuai kategori
@@ -4637,7 +4753,7 @@
     const syncStatusEl = shade.querySelector("#ak-medgroup-sync");
     const syncComplaintText = () => {
       const t = String(anamnesisEl.value || "").trim();
-      if (!t || t === syncedText || !isMedicalRecordCreatePage()) return;
+      if (!t || t === syncedText || !isMedicalRecordCreatePage() || !samePage()) return;
       for (const [id, label] of [["tf_complaint", "Keluhan Utama"], ["tf_anamese", "Anamnesa"]]) {
         const el = textFieldByIdOrLabel(id, label, [label]);
         if (el) nativeSetValue(el, t);
@@ -4646,15 +4762,11 @@
       setAnamnesisSource("Keluhan Utama");
       if (syncStatusEl) syncStatusEl.textContent = "✓ Keluhan Utama & Anamnesa di halaman diperbarui.";
     };
-    // Keadaan halaman terakhir (keluhan + diagnosis terpilih). Diagnosis halaman hanya
-    // diubah bila salah satunya berubah.
-    let committedComplaint = String(anamnesisEl.value || "").trim();
-    let committedDxKeys = selectedDxKeys().join(",");
     let dxSyncAgain = false;
     let dxSyncTimer = null;
     const syncDiagnosis = () => {
       clearTimeout(dxSyncTimer);
-      if (!isMedicalRecordCreatePage()) return Promise.resolve();
+      if (!isMedicalRecordCreatePage() || !samePage()) return Promise.resolve();
       if (dxSyncPromise) {
         dxSyncAgain = true;
         return dxSyncPromise;
@@ -4741,6 +4853,11 @@
           notify("Pilih minimal satu obat atau tindakan.", "warn", 7000);
           return;
         }
+        if (!samePage()) {
+          close();
+          notify("Halaman pasien sudah berganti. Buka Paket Resep lagi di halaman pasien ini.", "warn", 9000);
+          return;
+        }
         // v10.1.0: keluhan yang baru diubah -> perbarui halaman & diagnosis dulu.
         if (isMedicalRecordCreatePage()) {
           clearTimeout(anamnesisTimer);
@@ -4815,7 +4932,8 @@
       // (Klinik Pintar memberi rekomendasi layanan dari ICD-10 yang dipilih).
       if (withDiagnosis) {
         const vitals = assessVitals(readVitalsFromPage(), getPatientAgeFromIdentity()?.ageYears ?? null);
-        dxDetected = detectDiagnosisFromComplaint(readFieldText("Keluhan Utama"), { vitals });
+        // v10.2.1: Anamnesa sebagai cadangan bila Keluhan Utama kosong (sama dengan Paket Resep).
+        dxDetected = detectDiagnosisFromComplaint(readChiefComplaintFromPage().text, { vitals });
         const dx = dxDetected && DIAGNOSIS_TEMPLATES.find((d) => d.key === dxDetected.key);
         // v10.0.5: ICD yang sudah diisi dokter dihormati; tidak ditambah diagnosis lain.
         const existingIcd = selectedIcdEntries();
@@ -4880,7 +4998,7 @@
           notify(
             `RESUME + DIAGNOSIS selesai. Diagnosis: ${dxLabel(dxDetected.key)} (ICD ${dxResult.icdCode}), dari kata "${dxDetected.keyword}".` +
               (dxDetected.others.length
-                ? ` Juga cocok: ${dxDetected.others.map(dxLabel).join(", ")} — isi manual bila perlu.`
+                ? ` Juga cocok: ${dxDetected.others.map(dxLabel).join(", ")} (bisa dicentang di Paket Resep).`
                 : "") +
               " Paket Resep dibuka: periksa obat lalu INPUT RESEP." +
               failNote,
@@ -5428,5 +5546,7 @@
     return;
   }
 
-  start();
+  // v10.2.1: tunggu <html> ada (document-start) supaya penanda boot-ganda selalu terpasang.
+  const boot = () => (document.documentElement ? start() : setTimeout(boot, 10));
+  boot();
 })();
