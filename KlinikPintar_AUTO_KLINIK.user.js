@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Klinik Pintar - AUTO KLINIK
 // @namespace    klinikpintar-auto
-// @version      10.2.1
+// @version      10.3.0
 // @description  AUTO KLINIK untuk os.klinikpintar.id — RESUME + DIAGNOSIS + RESEP, Resume, Paket Resep Golongan. Tidak pernah menekan Simpan otomatis.
 // @author       taufanmtknight-debug
 // @match        https://os.klinikpintar.id/*
@@ -34,7 +34,7 @@
 
   // Versi diambil dari header (GM_info) agar label launcher tidak pernah beda
   // dengan @version. Nilai cadangan WAJIB sama dengan @version (dicek oleh test).
-  const SCRIPT_VERSION_FALLBACK = "10.2.1";
+  const SCRIPT_VERSION_FALLBACK = "10.3.0";
   const VERSION =
     (typeof GM_info !== "undefined" && GM_info?.script?.version) ||
     SCRIPT_VERSION_FALLBACK;
@@ -1130,7 +1130,8 @@
     },
     {
       label: "Gatal / alergi",
-      pattern: /gatal|alergi|biduran|kaligata|urtikaria|bentol|\bbidur|digigit\s+serangga/,
+      // v10.3.0: "alergi amoxicillin" = riwayat alergi obat, bukan keluhan gatal.
+      pattern: /gatal|alergi(?!\s+(?:obat|terhadap|antibiotik|amox|amoksi|peni|ampi|cefa|sefa|paracetamol|parasetamol|pct|ibuprofen|asam\s+mefenamat|mefenamat|diclo|diklo|cipro|metro|sulfa|ctm|nsaid))|biduran|kaligata|urtikaria|bentol|\bbidur|digigit\s+serangga/,
       adult: ["CETIRIZINE_10_DEWASA"],
       child: ["CETIRIZINE_RACIKAN_BARU"],
     },
@@ -1316,6 +1317,110 @@
       adult: ["ALLOPURINOL_100"], child: [] },
     { key: "DISLIPIDEMIA", label: "Dislipidemia", icd: ["E78.5", "E78.0"], query: "hyperlipidaemia",
       adult: ["SIMVASTATIN_10"], child: [] },
+    // v10.3.0: diagnosis FKTP tambahan (ICD-10 2010). note = pengingat untuk dokter;
+    // avoid = obat yang tidak disarankan untuk diagnosis ini. Obat hanya dari Paket Resep.
+    { key: "STROKE", label: "Suspek stroke", icd: ["I64", "I63.9"], query: "stroke",
+      adult: [], child: [], note: "Curiga stroke (lemah sesisi / bicara pelo): nilai onset & TTV, rujuk segera." },
+    { key: "NYERI_DADA", label: "Nyeri dada", icd: ["R07.4", "R07.3"], query: "chest pain",
+      adult: [], child: [], note: "Nyeri dada: singkirkan sindrom koroner akut (EKG); rujuk bila khas angina / TTV tidak stabil." },
+    { key: "KEJANG", label: "Kejang demam", icd: ["R56.0", "R56.8"], query: "convulsions",
+      adult: [], child: ["PARACETAMOL_ANAK"], note: "Kejang: nilai lama kejang & kesadaran; kejang >15 menit, berulang, atau tanpa demam: rujuk." },
+    { key: "SINKOP", label: "Sinkop (pingsan)", icd: ["R55"], query: "syncope",
+      adult: [], child: [], note: "Pingsan: periksa TD, nadi, gula darah; cari penyebab jantung." },
+    { key: "APENDISITIS", label: "Suspek apendisitis", icd: ["K35.8", "K37"], query: "appendicitis",
+      adult: [], child: [], note: "Curiga apendisitis (nyeri perut kanan bawah): jangan beri analgesik kuat sebelum dinilai, rujuk." },
+    { key: "DBD", label: "Demam dengue / DBD", icd: ["A91", "A90"], query: "dengue",
+      adult: ["PARACETAMOL_DEWASA"], child: ["PARACETAMOL_ANAK"],
+      avoid: ["IBUPROFEN_400", "DICLOFENAC_50", "ASAM_MEFENAMAT_500_DEWASA", "IBUPROFEN_ANAK"],
+      note: "Dengue: hindari NSAID; cek trombosit/hematokrit, edukasi minum, waspada hari ke-3–5." },
+    { key: "TIFOID", label: "Demam tifoid", icd: ["A01.0"], query: "typhoid",
+      adult: ["PARACETAMOL_DEWASA"], child: ["PARACETAMOL_ANAK"], note: "Tifoid: antibiotik (mis. Ciprofloxacin/Kloramfenikol) dipilih dokter, tidak dicentang otomatis." },
+    { key: "CHIKUNGUNYA", label: "Chikungunya", icd: ["A92.0"], query: "chikungunya",
+      adult: ["PARACETAMOL_DEWASA"], child: ["PARACETAMOL_ANAK"],
+      avoid: ["IBUPROFEN_400", "DICLOFENAC_50", "ASAM_MEFENAMAT_500_DEWASA", "IBUPROFEN_ANAK"],
+      note: "Chikungunya: hindari NSAID sampai dengue disingkirkan." },
+    { key: "IKTERUS", label: "Ikterus (kuning)", icd: ["R17"], query: "jaundice",
+      adult: [], child: [], note: "Kuning: periksa fungsi hati/bilirubin; hindari Paracetamol dosis tinggi." },
+    { key: "PNEUMONIA", label: "Pneumonia", icd: ["J18.9", "J18"], query: "pneumonia",
+      adult: ["AMOXICILLIN_500_DEWASA", "PARACETAMOL_DEWASA"], child: ["AMOXICILLIN_500_RACIKAN_BARU", "PARACETAMOL_ANAK"],
+      note: "Pneumonia: rujuk bila sesak berat, SpO2 <95%, napas cepat, atau anak tampak lemah." },
+    { key: "TB_SUSPEK", label: "Suspek TB paru", icd: ["Z03.0"], query: "tuberculosis",
+      adult: [], child: [], note: "Batuk ≥2 minggu / batuk darah / keringat malam: periksa TCM atau BTA dahak." },
+    { key: "BRONKITIS", label: "Bronkitis akut", icd: ["J20.9", "J20"], query: "acute bronchitis",
+      adult: ["AMBROXOL_30_DEWASA", "PARACETAMOL_DEWASA"], child: ["BAPIL_2_ANAK"] },
+    { key: "LARINGITIS", label: "Laringitis akut", icd: ["J04.0"], query: "laryngitis",
+      adult: [], child: [] },
+    { key: "EPISTAKSIS", label: "Epistaksis (mimisan)", icd: ["R04.0"], query: "epistaxis",
+      adult: [], child: [], note: "Mimisan: tekan cuping hidung 10 menit; cek TD." },
+    { key: "OTITIS_EKSTERNA", label: "Otitis eksterna", icd: ["H60.9", "H60"], query: "otitis externa",
+      adult: [], child: [] },
+    { key: "SERUMEN", label: "Serumen prop", icd: ["H61.2"], query: "cerumen",
+      adult: [], child: [] },
+    { key: "CORPUS_ALIENUM_MATA", label: "Benda asing di mata (kelilipan)", icd: ["T15.9", "T15.0"], query: "foreign body",
+      adult: [], child: [] },
+    { key: "HORDEOLUM", label: "Hordeolum (bintitan)", icd: ["H00.0"], query: "hordeolum",
+      adult: [], child: [] },
+    { key: "DISENTRI", label: "Disentri (BAB berlendir/darah)", icd: ["A09", "A03.9", "A06.0"], query: "dysentery",
+      adult: [], child: ["ZINC_ANAK", "ORALIT_ANAK"], note: "Disentri: antibiotik/antiamuba dipilih dokter, tidak dicentang otomatis." },
+    { key: "HEMOROID", label: "Hemoroid (wasir)", icd: ["I84.9", "I84"], query: "haemorrhoids",
+      adult: [], child: [] },
+    { key: "GERD", label: "GERD (refluks asam lambung)", icd: ["K21.9", "K21"], query: "gastro-oesophageal reflux",
+      adult: ["OMEPRAZOLE_20_DEWASA", "ANTASIDA_DEWASA"], child: ["ANTASIDA_ANAK"] },
+    { key: "KEPUTIHAN", label: "Fluor albus (keputihan)", icd: ["N89.8", "N76.0"], query: "leukorrhoea",
+      adult: [], child: [] },
+    { key: "GINGIVITIS", label: "Gingivitis", icd: ["K05.1", "K05.0"], query: "gingivitis",
+      adult: [], child: [] },
+    { key: "LUKA_BAKAR", label: "Luka bakar", icd: ["T30.0", "T30"], query: "burn",
+      adult: [], child: [], note: "Luka bakar: nilai luas & derajat; luas, wajah/genital, atau derajat dalam: rujuk." },
+    { key: "VULNUS", label: "Vulnus (luka terbuka)", icd: ["T14.1"], query: "open wound",
+      adult: [], child: [], note: "Luka terbuka: pertimbangkan profilaksis tetanus." },
+    { key: "GIGITAN_HEWAN", label: "Gigitan hewan", icd: ["T14.1"], query: "open wound",
+      adult: [], child: [], note: "Gigitan hewan penular rabies: cuci luka 15 menit dengan sabun, nilai kebutuhan VAR/SAR." },
+    { key: "HERPES_SIMPLEX", label: "Herpes simpleks", icd: ["B00.9", "B00.1"], query: "herpes simplex",
+      adult: [], child: [] },
+    { key: "MORBILI", label: "Campak (morbili)", icd: ["B05.9", "B05"], query: "measles",
+      adult: ["PARACETAMOL_DEWASA", "CETIRIZINE_10_DEWASA"], child: ["PARACETAMOL_ANAK", "CETIRIZINE_RACIKAN_BARU"],
+      note: "Campak: pertimbangkan vitamin A; laporkan sebagai penyakit potensial wabah." },
+    { key: "PAROTITIS", label: "Parotitis (gondongan)", icd: ["B26.9"], query: "mumps",
+      adult: ["PARACETAMOL_DEWASA"], child: ["PARACETAMOL_ANAK"] },
+    { key: "HFMD", label: "HFMD (flu Singapura)", icd: ["B08.4"], query: "vesicular stomatitis with exanthem",
+      adult: ["PARACETAMOL_DEWASA"], child: ["PARACETAMOL_ANAK"] },
+    { key: "SKABIES", label: "Skabies (gudik)", icd: ["B86"], query: "scabies",
+      adult: ["CETIRIZINE_10_DEWASA"], child: ["CETIRIZINE_RACIKAN_BARU"], note: "Skabies: obat utama permethrin/salep 2-4 (tidak ada di Paket Resep); obati serumah." },
+    { key: "PEDIKULOSIS", label: "Pedikulosis (kutu rambut)", icd: ["B85.0"], query: "pediculosis",
+      adult: [], child: [] },
+    { key: "MILIARIA", label: "Miliaria (biang keringat)", icd: ["L74.0", "L74.3"], query: "miliaria",
+      adult: [], child: [] },
+    { key: "AKNE", label: "Akne (jerawat)", icd: ["L70.0", "L70.9"], query: "acne",
+      adult: [], child: [] },
+    { key: "KUTIL", label: "Veruka (kutil)", icd: ["B07"], query: "viral warts",
+      adult: [], child: [] },
+    { key: "KEHAMILAN", label: "Kehamilan (ANC)", icd: ["Z34.9", "Z34.8"], query: "supervision of normal pregnancy",
+      adult: [], child: [] },
+    { key: "SPRAIN", label: "Sprain / keseleo", icd: ["T14.3"], query: "sprain",
+      adult: ["DICLOFENAC_50"], child: ["PARACETAMOL_ANAK"] },
+    { key: "KONTUSIO", label: "Kontusio / memar (cedera)", icd: ["T14.0"], query: "superficial injury",
+      adult: ["PARACETAMOL_DEWASA"], child: ["PARACETAMOL_ANAK"], note: "Cedera / jatuh: nilai tanda fraktur & cedera kepala." },
+    { key: "GOUT", label: "Artritis gout", icd: ["M10.9", "M10.0"], query: "gout",
+      adult: ["DICLOFENAC_50"], child: [], note: "Serangan gout akut: Allopurinol jangan dimulai saat serangan (lanjutkan bila sudah rutin)." },
+    { key: "BELLS_PALSY", label: "Bell's palsy", icd: ["G51.0"], query: "bell",
+      adult: [], child: [], note: "Wajah mencong: bedakan dengan stroke (lemah anggota gerak / bicara pelo)." },
+    { key: "HIPOTENSI", label: "Hipotensi (darah rendah)", icd: ["I95.9", "I95"], query: "hypotension",
+      adult: [], child: [] },
+    { key: "ANEMIA", label: "Anemia", icd: ["D64.9", "D50.9"], query: "anaemia",
+      adult: [], child: [] },
+    { key: "MIGRAIN", label: "Migrain", icd: ["G43.9", "G43"], query: "migraine",
+      adult: ["PARACETAMOL_DEWASA"], child: ["PARACETAMOL_ANAK"] },
+    { key: "TENSION_HEADACHE", label: "Tension headache", icd: ["G44.2"], query: "tension-type headache",
+      adult: ["PARACETAMOL_DEWASA"], child: ["PARACETAMOL_ANAK"] },
+    { key: "NEUROPATI", label: "Kesemutan / parestesia", icd: ["R20.2"], query: "paraesthesia",
+      adult: [], child: [] },
+    { key: "INSOMNIA", label: "Insomnia", icd: ["G47.0", "F51.0"], query: "insomnia",
+      adult: [], child: [] },
+    { key: "ANSIETAS", label: "Gangguan cemas", icd: ["F41.9", "F41.1"], query: "anxiety",
+      adult: [], child: [] },
+    { key: "MALAISE", label: "Lemas / malaise", icd: ["R53"], query: "malaise",
+      adult: [], child: [] },
   ];
 
   // v10.2.0: kemungkinan diagnosis lain (diagnosis banding) yang ditawarkan di Paket
@@ -1330,20 +1435,19 @@
     OMA: ["ISPA"],
     ASMA: ["ISPA"],
     GEA: ["DISPEPSIA", "NYERI_PERUT"],
-    DISPEPSIA: ["GASTRITIS", "GEA"],
+    DISPEPSIA: ["GASTRITIS", "GERD", "GEA"],
     GASTRITIS: ["DISPEPSIA"],
-    NYERI_PERUT: ["DISPEPSIA", "GEA", "ISK", "KONSTIPASI"],
+    NYERI_PERUT: ["DISPEPSIA", "GEA", "ISK", "KONSTIPASI", "APENDISITIS"],
     KONSTIPASI: ["NYERI_PERUT"],
     HELMINTHIASIS: ["NYERI_PERUT"],
-    FEVER: ["ISPA", "MYALGIA", "ISK"],
     MYALGIA: ["LBP", "FEVER", "OA_GENU"],
     LBP: ["MYALGIA"],
     OA_GENU: ["MYALGIA", "HIPERURISEMIA"],
-    HIPERURISEMIA: ["OA_GENU"],
-    CEPHALGIA: ["VERTIGO", "HT"],
+    HIPERURISEMIA: ["GOUT", "OA_GENU"],
+    CEPHALGIA: ["TENSION_HEADACHE", "MIGRAIN", "VERTIGO", "HT"],
     VERTIGO: ["CEPHALGIA", "HT"],
-    HT: ["CEPHALGIA", "DISLIPIDEMIA", "DM"],
-    DM: ["HT", "DISLIPIDEMIA"],
+    HT: ["TENSION_HEADACHE", "CEPHALGIA", "DISLIPIDEMIA", "DM"],
+    DM: ["HT", "DISLIPIDEMIA", "NEUROPATI"],
     DISLIPIDEMIA: ["HT", "DM"],
     DERMATITIS: ["URTIKARIA", "TINEA"],
     URTIKARIA: ["DERMATITIS"],
@@ -1353,7 +1457,53 @@
     ZOSTER: ["VARICELLA"],
     ISK: ["NYERI_PERUT"],
     DISMENORE: ["NYERI_PERUT"],
-    PULPITIS: ["ABSES"],
+    PULPITIS: ["ABSES", "GINGIVITIS"],
+    // v10.3.0
+    FEVER: ["ISPA", "TIFOID", "DBD", "ISK", "MYALGIA"],
+    DBD: ["TIFOID", "CHIKUNGUNYA", "FEVER"],
+    TIFOID: ["DBD", "GEA", "FEVER"],
+    CHIKUNGUNYA: ["DBD", "MYALGIA"],
+    TB_SUSPEK: ["BRONKITIS", "PNEUMONIA", "ISPA"],
+    PNEUMONIA: ["BRONKITIS", "TB_SUSPEK", "ASMA"],
+    BRONKITIS: ["ISPA", "PNEUMONIA", "ASMA"],
+    LARINGITIS: ["ISPA", "FARINGITIS"],
+    EPISTAKSIS: ["HT", "RINITIS_ALERGI"],
+    OTITIS_EKSTERNA: ["OMA", "SERUMEN"],
+    SERUMEN: ["OTITIS_EKSTERNA", "OMA"],
+    HORDEOLUM: ["KONJUNGTIVITIS"],
+    CORPUS_ALIENUM_MATA: ["KONJUNGTIVITIS"],
+    KONJUNGTIVITIS: ["CORPUS_ALIENUM_MATA", "HORDEOLUM"],
+    DISENTRI: ["GEA", "HEMOROID"],
+    HEMOROID: ["KONSTIPASI", "DISENTRI"],
+    GERD: ["DISPEPSIA", "GASTRITIS", "NYERI_DADA"],
+    NYERI_DADA: ["GERD", "MYALGIA", "ANSIETAS"],
+    APENDISITIS: ["NYERI_PERUT", "ISK", "GEA"],
+    KEPUTIHAN: ["ISK"],
+    GINGIVITIS: ["PULPITIS", "STOMATITIS"],
+    ABSES: ["VULNUS"],
+    VULNUS: ["ABSES", "KONTUSIO"],
+    LUKA_BAKAR: ["VULNUS"],
+    GIGITAN_HEWAN: ["VULNUS"],
+    KONTUSIO: ["SPRAIN", "VULNUS"],
+    SPRAIN: ["KONTUSIO", "MYALGIA"],
+    GOUT: ["HIPERURISEMIA", "OA_GENU"],
+    SKABIES: ["DERMATITIS", "TINEA"],
+    MILIARIA: ["DERMATITIS"],
+    MORBILI: ["VARICELLA", "URTIKARIA"],
+    HFMD: ["VARICELLA", "STOMATITIS"],
+    HERPES_SIMPLEX: ["STOMATITIS"],
+    STROKE: ["HT", "BELLS_PALSY"],
+    BELLS_PALSY: ["STROKE"],
+    KEJANG: ["FEVER"],
+    SINKOP: ["HIPOTENSI", "ANEMIA"],
+    HIPOTENSI: ["ANEMIA", "CEPHALGIA"],
+    ANEMIA: ["HIPOTENSI", "MALAISE"],
+    MALAISE: ["ANEMIA", "FEVER", "DM"],
+    MIGRAIN: ["CEPHALGIA", "TENSION_HEADACHE"],
+    TENSION_HEADACHE: ["CEPHALGIA", "HT"],
+    NEUROPATI: ["DM"],
+    INSOMNIA: ["ANSIETAS"],
+    ANSIETAS: ["INSOMNIA"],
   };
 
   // Daftar pilihan diagnosis untuk hasil detectDiagnosisFromComplaint():
@@ -1379,48 +1529,97 @@
   //   3 keluhan umum (vertigo > sakit kepala > pegal)
   //   4 demam saja (demam + batuk = ISPA, demam + diare = GEA)
   const DIAGNOSIS_FROM_COMPLAINT = [
+    // v10.3.0: tanda bahaya didahulukan (dokter diingatkan merujuk/menilai segera).
+    { key: "STROKE", tier: 1, pattern: /\bstroke\b|\bstruk\b|lemah\s+(?:separuh|sebelah)|(?:badan|tubuh|tangan|kaki|lengan)\s+(?:kanan|kiri|sebelah)\s+(?:\w+\s+)?(?:lemah|lumpuh|kaku|tidak\s+bisa\s+digerakkan)|bicara\s+pelo|\bpelo\b/ },
+    { key: "NYERI_DADA", tier: 1, pattern: /(?:nyeri|sakit)\s+dada|dada\s+(?:kiri\s+)?(?:sakit|nyeri|ditekan|tertekan|seperti\s+ditindih|ampek)|angina/ },
+    { key: "KEJANG", tier: 1, pattern: /kejang|\bstep\b|stuip/ },
+    { key: "SINKOP", tier: 1, pattern: /pingsan|sinkop|syncope|tidak\s+sadarkan\s+diri/ },
+    { key: "APENDISITIS", tier: 1, pattern: /usus\s+buntu|apendi\w*|appendi\w*|(?:nyeri|sakit)\s+perut\s+(?:bagian\s+)?kanan\s+bawah|perut\s+kanan\s+bawah\s+(?:terasa\s+)?(?:nyeri|sakit)/ },
+    { key: "DBD", tier: 1, pattern: /\bdbd\b|\bdhf\b|demam\s+berdarah|dengue|pete?ki\w*|petechi\w*|trombosit\s+(?:turun|rendah)|demam[^.\n]{0,40}?(?:bintik[\s-]+(?:bintik\s+)?merah|mimisan|gusi\s+berdarah)/ },
+    { key: "TIFOID", tier: 1, pattern: /tifus|tipes|tipus|tifoid|typhoid|thypoid|paratifoid|lidah\s+kotor|demam[^.,;\n]{0,20}?(?:[7-9]|1\d)\s*hari|demam\s+(?:sudah\s+)?(?:seminggu|1\s+minggu)/ },
+    { key: "CHIKUNGUNYA", tier: 1, pattern: /chikun\w*|cikun\w*|flu\s+tulang/ },
+    { key: "VARICELLA", tier: 1, pattern: /cacar\s+air|varisela|varicella|\bcacar\b(?!\s+(?:ular|api|monyet))/ },
+    { key: "ZOSTER", tier: 1, pattern: /herpes\s+zoster|\bzoster\b|cacar\s+(?:ular|api)|dompo/ },
+    { key: "MORBILI", tier: 1, pattern: /(?<!(?:imunisasi|vaksin\w*|suntik)\s+)campak(?!\s+rubel)|morbili|measles/ },
+    { key: "PAROTITIS", tier: 1, pattern: /gondong\w*|parotitis|mumps|bengkak\s+(?:di\s+)?bawah\s+telinga/ },
+    { key: "HFMD", tier: 1, pattern: /flu\s+singapura|\bhfmd\b|tangan,?\s+kaki,?\s+(?:dan\s+)?mulut/ },
+    { key: "IKTERUS", tier: 1, pattern: /(?:mata|kulit|badan)\s+(?:\w+\s+)?kuning|sakit\s+kuning|ikterus|jaundice/ },
+    { key: "PNEUMONIA", tier: 1, pattern: /pneumoni\w*|bronkopneumoni\w*|radang\s+paru|paru[\s-]+paru\s+basah|paru\s+basah/ },
+    { key: "TB_SUSPEK", tier: 1, pattern: /\btbc?\b|tuberkulosis|flek\s+paru|batuk\s+(?:ber)?darah|keringat\s+malam|batuk\s+(?:lama|menahun|lebih\s+dari\s+(?:2|dua)\s+minggu)|batuk[^.,;\n]{0,20}?\b(?:[2-9]|dua|tiga|empat|lima|enam)\s*(?:minggu|bulan)/ },
+    { key: "BRONKITIS", tier: 1, pattern: /bronkitis|bronchitis/ },
     { key: "TONSILITIS", tier: 1, pattern: /tonsil\w*|amandel/ },
     { key: "FARINGITIS", tier: 1, pattern: /faring\w*/ },
     { key: "SINUSITIS", tier: 1, pattern: /sinusitis|\bsinus\b/ },
+    { key: "EPISTAKSIS", tier: 1, pattern: /mimisan|epista\w*|hidung\s+(?:keluar\s+)?(?:ber)?darah|darah\s+(?:keluar\s+)?dari\s+hidung/ },
+    { key: "OTITIS_EKSTERNA", tier: 1, pattern: /otitis\s+eksterna|liang\s+telinga\s+(?:\w+\s+)?(?:bengkak|nyeri|sakit|gatal)|telinga\s+(?:\w+\s+)?gatal|gatal\s+(?:di\s+)?telinga/ },
     { key: "OMA", tier: 1, pattern: /(?:sakit|nyeri)\s+telinga|telinga\b[^.,;\n]{0,15}?(?:sakit|nyeri|berair|bernanah|cairan)|otitis|congek|kopok/ },
+    { key: "SERUMEN", tier: 1, pattern: /serumen|kotoran\s+telinga|telinga\s+(?:\w+\s+)?(?:tersumbat|buntu|budeg|penuh|berdengung|mendengung)|\bbudeg\b|pendengaran\s+(?:berkurang|menurun)/ },
     // v10.2.1: "sesak" saja tidak lagi mengalahkan batuk/pilek (ISPA); asma/mengi tetap utama.
-    { key: "ASMA", tier: 1, pattern: /\basma\b|asthma|mengi/ },
+    { key: "ASMA", tier: 1, pattern: /\basma\b|asthma|mengi|\bbengek\b/ },
     { key: "RINITIS_ALERGI", tier: 1, pattern: /rinitis|rhinitis|alergi\s+(?:debu|dingin|cuaca)|bersin[\s-]+bersin\s+(?:tiap|setiap|saat|kalau|jika)/ },
-    { key: "ISPA", tier: 1, pattern: /batuk|pilek|\bbat?pil\b|\bflu\b|influenza|bersin|hidung\s+(?:tersumbat|mampet|meler)|ingus|\bispa\b|common cold|tenggorok\w*\s+(?:sakit|nyeri|perih|gatal)|(?:nyeri|sakit|perih|gatal)\s+(?:saat\s+)?(?:menelan|telan|tenggorok\w*)|radang\s+tenggorok\w*/ },
-    { key: "KONJUNGTIVITIS", tier: 1, pattern: /mata\s+(?:merah|belek\w*|gatal|berair)|belekan|konjungtiv\w*|\bbelek\b/ },
-    { key: "GEA", tier: 1, pattern: /diare|mencret|muntaber|(?:bab|berak|buang air besar)\s+(?:cair|encer)|gastroenteritis|\bgea\b/ },
+    { key: "ISPA", tier: 1, pattern: /batuk|pilek|\bbat?pil\b|\bflu\b(?!\s+(?:tulang|singapura|burung))|influenza|selesma|bersin|hidung\s+(?:tersumbat|mampet|meler|buntu|berair)|\bmeler\b|ingus|\bispa\b|common cold|tenggorok\w*\s+(?:sakit|nyeri|perih|gatal|kering|panas)|(?:nyeri|sakit|perih|gatal)\s+(?:saat\s+)?(?:menelan|telan|tenggorok\w*)|radang\s+tenggorok\w*/ },
+    { key: "LARINGITIS", tier: 1, pattern: /\bserak\b|suara\s+(?:hilang|habis|parau)|laringitis/ },
+    { key: "CORPUS_ALIENUM_MATA", tier: 1, pattern: /kelilipan|kemasukan\s+(?:debu|pasir|serangga|benda|kotoran|gram|serpihan|kaca)|mata\s+kena\s+(?:gram|serpihan|debu|pasir)/ },
+    { key: "HORDEOLUM", tier: 1, pattern: /bintitan|timbil|hordeol\w*|kalazion|chalazion|benjol\w*\s+(?:di\s+)?kelopak/ },
+    { key: "KONJUNGTIVITIS", tier: 1, pattern: /mata\s+(?:\w+\s+)?(?:merah|belek\w*|gatal|berair|perih|lengket)|belekan|konjungtiv\w*|\bbelek\b/ },
+    { key: "DISENTRI", tier: 1, pattern: /disentri|(?:bab|berak|tinja|feses)[^.,;\n]{0,20}?lendir|lendir\s+(?:dan\s+)?darah/ },
+    { key: "GEA", tier: 1, pattern: /diare|mencret|muntaber|berak[\s-]+berak|(?:bab|berak|buang air besar)\s+(?:cair|encer|terus|[3-9]\s*(?:x|kali)|>\s*[3-9]|lebih\s+dari\s+[2-9])|gastroenteritis|\bgea\b/ },
+    { key: "HEMOROID", tier: 1, pattern: /wasir|ambei?en|ambeyen|hemoroid\w*|haemorrhoid\w*|benjol\w*\s+(?:di\s+)?(?:anus|dubur)|(?:bab|berak)\s+(?:keluar\s+)?darah\s+segar/ },
     { key: "HELMINTHIASIS", tier: 1, pattern: /cacing\w*|kremi/ },
     { key: "GASTRITIS", tier: 1, pattern: /gastritis/ },
-    { key: "DISPEPSIA", tier: 1, pattern: /\bmaa?g\b|ulu\s+hati|epigastri\w*|dispepsia|gastritis|kembung|begah|sebah|perih\s+(?:di\s+)?(?:ulu\s+hati|lambung|perut)|perut\s+perih|asam\s+lambung|\bgerd\b/ },
+    { key: "GERD", tier: 1, pattern: /\bgerd\b|refluks|reflux|asam\s+lambung\s+naik|heartburn|dada\s+(?:terasa\s+)?(?:panas|terbakar)|mulut\s+(?:terasa\s+)?asam/ },
+    { key: "DISPEPSIA", tier: 1, pattern: /\bmaa?g\b|ulu\s+hati|epigastri\w*|dispepsia|gastritis|kembung|begah|sebah|cepat\s+kenyang|perih\s+(?:di\s+)?(?:ulu\s+hati|lambung|perut)|perut\s+perih|asam\s+lambung/ },
     { key: "KONSTIPASI", tier: 1, pattern: /sembelit|konstipasi|susah\s+(?:bab|buang\s+air\s+besar)|(?:tidak|belum)\s+bab\s+\d|bab\s+keras/ },
-    { key: "NYERI_PERUT", tier: 1, pattern: /(?:sakit|nyeri)\s+perut|perut\s+(?:sakit|nyeri|melilit|mules)|melilit|kolik/ },
-    { key: "ISK", tier: 1, pattern: /anyang|disuria|\bisk\b|infeksi\s+saluran\s+kemih|(?:nyeri|sakit|perih|panas)\s+(?:saat\s+)?(?:bak|kencing|berkemih|pipis)|(?:bak|kencing|pipis)\s+(?:perih|panas|sakit|nyeri)/ },
+    { key: "NYERI_PERUT", tier: 1, pattern: /(?:sakit|nyeri)\s+perut|perut\s+(?:sakit|nyeri|melilit|mules|kram)|melilit|kram\s+perut|kolik/ },
+    { key: "ISK", tier: 1, pattern: /anyang|disuria|\bisk\b|infeksi\s+saluran\s+kemih|(?:nyeri|sakit|perih|panas)\s+(?:saat\s+)?(?:bak|kencing|berkemih|pipis)|(?:bak|kencing|pipis)\s+(?:perih|panas|sakit|nyeri|berdarah|tidak\s+tuntas|tidak\s+puas)/ },
+    { key: "KEPUTIHAN", tier: 1, pattern: /keputihan|fluor\s+albus|leukore\w*|keluar\s+cairan\s+(?:dari\s+)?(?:vagina|kemaluan)/ },
     { key: "DISMENORE", tier: 1, pattern: /(?:nyeri|sakit)\s+(?:saat\s+)?(?:haid|mens\w*)|(?:haid|mens\w*)\s+(?:nyeri|sakit)|dismenore\w*/ },
-    { key: "PULPITIS", tier: 1, pattern: /(?:sakit|nyeri|ngilu)\s+gigi|gigi\s+(?:sakit|nyeri|ngilu|bengkak|berlubang|goyang)|pulpitis|gusi\s+bengkak|abses\s+gigi/ },
+    { key: "PULPITIS", tier: 1, pattern: /(?:sakit|nyeri|ngilu)\s+gigi|gigi\s+(?:sakit|nyeri|ngilu|bengkak|berlubang|goyang)|pulpitis|abses\s+gigi/ },
+    { key: "GINGIVITIS", tier: 1, pattern: /gusi\s+(?:berdarah|bengkak|radang|sakit)|radang\s+gusi|gingiv\w*/ },
     { key: "ABSES", tier: 1, pattern: /bisul|(?<!gigi\s)abses(?!\s+gigi)|bernanah|furunkel|luka\b[^.;\n]{0,40}?(?:infeksi|meradang|radang|bernanah|berair|bengkak)/ },
-    { key: "VARICELLA", tier: 1, pattern: /cacar\s+air|varisela|varicella|\bcacar\b(?!\s+(?:ular|api))/ },
-    { key: "ZOSTER", tier: 1, pattern: /herpes\s+zoster|\bzoster\b|cacar\s+(?:ular|api)|dompo/ },
+    { key: "LUKA_BAKAR", tier: 1, pattern: /luka\s+bakar|(?<!(?:dada|hati|lambung|perut|mata)\s+(?:terasa\s+)?)terbakar|tersiram\s+(?:air\s+|minyak\s+)?panas|kena\s+(?:knalpot|minyak\s+panas|air\s+panas)|combustio/ },
+    { key: "VULNUS", tier: 1, pattern: /luka\s+(?:robek|sobek|terbuka|gores|lecet|iris|sayat|tusuk)|tersayat|teriris|tergores|vulnus|kena\s+(?:pisau|beling|kaca|paku|seng)|\blecet\b/ },
+    { key: "GIGITAN_HEWAN", tier: 1, pattern: /digigit\s+(?:anjing|kucing|monyet|tikus|kera)|gigitan\s+(?:anjing|kucing|monyet|tikus|kera)|dicakar\s+(?:kucing|anjing)/ },
+    { key: "HERPES_SIMPLEX", tier: 1, pattern: /herpes\s+(?:simpleks|simplex|labialis)|(?:bibir|mulut)\s+(?:\w+\s+)?(?:melepuh|lepuh\w*)|lepuh\w*\s+(?:di\s+)?bibir/ },
     { key: "TINEA", tier: 1, pattern: /kurap|kadas|tinea|jamur|kutu\s+air|\bgatal\s+selangkangan/ },
     { key: "PANU", tier: 1, pattern: /\bpanu\b|versikolor|versicolor/ },
+    { key: "SKABIES", tier: 1, pattern: /gudik|kudis|skabies|scabies|gatal[^.,;\n]{0,30}?malam|gatal[^.,;\n]{0,15}?sela[\s-]+jari\s+tangan/ },
+    { key: "PEDIKULOSIS", tier: 1, pattern: /kutu\s+rambut|kutuan|pedikulosis|pediculosis/ },
+    { key: "MILIARIA", tier: 1, pattern: /biang\s+keringat|keringat\s+buntet|miliaria/ },
+    { key: "AKNE", tier: 1, pattern: /jerawat|\bakne\b|\bacne\b/ },
+    { key: "KUTIL", tier: 1, pattern: /kutil|veruka|verruca/ },
     { key: "STOMATITIS", tier: 1, pattern: /sariawan|stomatitis|\baft\w*/ },
     { key: "URTIKARIA", tier: 1, pattern: /biduran|kaligata|urtikaria|bentol|\bbidur/ },
-    { key: "DERMATITIS", tier: 1, pattern: /ruam|eksim|eksema|dermatitis|(?<!(?:tenggorok\w*|mata|telinga|hidung)\s+)gatal(?!\s+(?:di\s+)?(?:tenggorok|mata|telinga|hidung))/ },
+    { key: "DERMATITIS", tier: 1, pattern: /ruam|eksim|eksema|dermatitis|(?<!(?:tenggorok\w*|mata|telinga|hidung|keputihan|kemaluan|vagina|anus|dubur)\s+)gatal(?!\s+(?:di\s+)?(?:tenggorok|mata|telinga|hidung|kemaluan|vagina|anus|dubur))/ },
     { key: "IMUNISASI", tier: 1, pattern: /imunisasi|vaksin\w*|\bbcg\b|\bdpt\w*|\bpolio\b|\bopv\b|\bipv\b|\bpcv\b|campak\s+rubel\w*|\bmr\b|\bhb[\s-]?0\b/ },
-    { key: "OA_GENU", tier: 1, pattern: /(?:nyeri|sakit|ngilu)\s+(?:di\s+)?lutut|lutut\s+(?:nyeri|sakit|kaku|bengkak|ngilu)|osteoart\w*|pengapuran/ },
-    { key: "LBP", tier: 1, pattern: /(?:nyeri|sakit|pegal)\s+(?:di\s+)?(?:pinggang|punggung)|low back pain|\blbp\b|encok/ },
-    { key: "HT", tier: 2, pattern: /hipertensi|darah\s+tinggi|tensi\s+tinggi|\bht\b|\bhtn\b/ },
+    { key: "KEHAMILAN", tier: 1, pattern: /\bhamil\b|kehamilan|\banc\b|(?:periksa|kontrol)\s+kandungan|\bg\d+\s*p\d+\s*a\d+\b/ },
+    { key: "SPRAIN", tier: 1, pattern: /keseleo|terkilir|kecetit|salah\s+urat|sprain/ },
+    { key: "KONTUSIO", tier: 1, pattern: /memar|lebam|terbentur|kebentur|terjatuh|jatuh\s+(?:dari|terpeleset|saat)|terpeleset|kecelakaan|\bkll\b/ },
+    { key: "GOUT", tier: 1, pattern: /\bgout\b|asam\s+urat\s+kambuh|(?:jempol|ibu\s+jari)\s+kaki\s+(?:\w+\s+)?(?:bengkak|nyeri|sakit|merah)/ },
+    { key: "OA_GENU", tier: 1, pattern: /(?:nyeri|sakit|ngilu)\s+(?:di\s+)?(?:lutut|dengkul)|(?:lutut|dengkul)\s+(?:nyeri|sakit|kaku|bengkak|ngilu|bunyi)|osteoart\w*|pengapuran/ },
+    { key: "LBP", tier: 1, pattern: /(?:nyeri|sakit|pegal)\s+(?:di\s+)?(?:pinggang|punggung|boyok)|(?:pinggang|punggung|boyok)\s+(?:sakit|nyeri|pegal|kaku)|low back pain|\blbp\b|encok/ },
+    { key: "BELLS_PALSY", tier: 1, pattern: /bell'?s?\s*palsy|(?:wajah|muka|mulut|bibir)\s+(?:\w+\s+)?(?:mencong|miring|perot|merot)|\bmencong\b/ },
+    { key: "HT", tier: 2, pattern: /hipertensi|darah\s+tinggi|tensi\s+(?:tinggi|naik)|tekanan\s+darah\s+tinggi|kontrol\s+tensi|\bht\b|\bhtn\b/ },
+    { key: "HIPOTENSI", tier: 2, pattern: /darah\s+rendah|tensi\s+(?:rendah|turun)|hipotensi/ },
     { key: "HIPERURISEMIA", tier: 2, pattern: /asam\s+urat\s+(?:tinggi|naik)|kontrol\s+asam\s+urat|hiperurisemi\w*/ },
     { key: "DISLIPIDEMIA", tier: 2, pattern: /kolesterol\s+(?:tinggi|naik)|kontrol\s+kolesterol|dislipid\w*|hiperlipid\w*/ },
-    { key: "DM", tier: 2, pattern: /diabetes|kencing\s+manis|gula\s+(?:darah\s+)?(?:tinggi|naik)|\bdm\b/ },
+    { key: "DM", tier: 2, pattern: /diabet\w*|kencing\s+manis|gula\s+(?:darah\s+)?(?:tinggi|naik)|kontrol\s+gula|\bdm\b/ },
+    { key: "ANEMIA", tier: 2, pattern: /anemia|anemis|kurang\s+darah|\bhb\s+(?:rendah|turun)/ },
     // v10: vertigo khas (berputar) = keluhan utama, mengalahkan TD tinggi dari TTV.
     { key: "VERTIGO", tier: 1, pattern: /vertigo|pusing\s+berputar|(?:ruangan|sekitar|kepala)\s+(?:terasa\s+)?berputar/ },
     { key: "VERTIGO", tier: 3, pattern: /kliyengan|sempoyongan/ },
-    { key: "CEPHALGIA", tier: 3, pattern: /(?:sakit|nyeri)\s+kepala|pusing|cekot|ce[fp]h?algia|migr[ae]i?n/ },
+    { key: "MIGRAIN", tier: 3, pattern: /migr[ae]i?n|(?:sakit|nyeri|pusing)\s+kepala\s+sebelah|kepala\s+sebelah\s+(?:sakit|nyeri|cekot\w*|nyut\w*)/ },
+    { key: "TENSION_HEADACHE", tier: 3, pattern: /tengkuk\s+(?:\w+\s+)?(?:kaku|tegang|berat|sakit|nyeri|pegal)|kepala\s+(?:terasa\s+)?(?:berat|tegang|seperti\s+diikat)|tension\s+(?:type\s+)?headache/ },
+    { key: "CEPHALGIA", tier: 3, pattern: /(?:sakit|nyeri)\s+kepala|pusing|cekot|nyut[\s-]?nyut\w*|cenat[\s-]?cenut|ce[fp]h?algia/ },
     // v10: mual/muntah saja = keluhan penyerta; kalah dari pusing, diare, dll.
     { key: "DISPEPSIA", tier: 3, pattern: /mual|muntah/ },
     { key: "ASMA", tier: 3, pattern: /\bsesak\b/ },
-    { key: "MYALGIA", tier: 3, pattern: /pegal|pegel|linu|(?:nyeri|sakit)\s+(?:otot|badan)|m[iy]algia/ },
+    { key: "MYALGIA", tier: 3, pattern: /pegal|pegel|linu|kemeng|(?:nyeri|sakit)\s+(?:otot|badan)|badan\s+(?:sakit|remuk|pegal)|m[iy]algia/ },
+    { key: "NEUROPATI", tier: 3, pattern: /kesemutan|\bkebas\b|\bbaal\b|mati\s+rasa|neuropati\w*/ },
+    { key: "INSOMNIA", tier: 3, pattern: /insomnia|(?:susah|sulit|tidak\s+bisa|tdk\s+bisa|gak\s+bisa|ga\s+bisa)\s+tidur/ },
+    { key: "ANSIETAS", tier: 3, pattern: /\bcemas\b|ansietas|anxiety|gelisah|\bpanik\b|deg[\s-]?degan|jantung\s+berdebar/ },
     { key: "FEVER", tier: 4, pattern: /demam|febris|meriang|sumeng|(?:badan|suhu)\s+(?:terasa\s+)?panas|panas\s+(?:badan|tinggi|naik|sejak|\d)/ },
+    { key: "MALAISE", tier: 5, pattern: /\blemas\b|\blemes\b|\blesu\b|\bletih\b|badan\s+lemah|lemah\s+badan|tidak\s+bertenaga/ },
   ];
 
   // Hasil: { key, keyword, others: [kunci lain yang juga cocok] } atau null.
@@ -1486,6 +1685,33 @@
       drop: ["CETIRIZINE_RACIKAN_BARU"],
       note: "Racikan Cetirizine tidak disarankan karena racikan batuk sudah berisi CTM",
     },
+  ];
+
+  // v10.3.0: riwayat alergi obat yang tertulis di keluhan/anamnesa ("alergi amoxicillin")
+  // -> obat itu tidak dicentang. "alergi obat (-)" / "disangkal" diabaikan.
+  const DRUG_ALLERGY_RULES = [
+    { label: "Amoxicillin/penisilin", pattern: /amox\w*|amoksi\w*|peni[cs]il\w*|ampi[cs]il\w*/,
+      drop: ["AMOXICILLIN_500_DEWASA", "AMOXICILLIN_500_RACIKAN_BARU", "AMOXICILLIN_SYRUP"],
+      note: "waspadai reaksi silang dengan Cefadroxil" },
+    { label: "Cefadroxil/sefalosporin", pattern: /cefa\w*|sefa\w*|cephal\w*/,
+      drop: ["CEFADROXIL_500_DEWASA", "CEFADROXIL_PUYER_ANAK", "CEFADROXIL_SYRUP"] },
+    { label: "Paracetamol", pattern: /paracetamol|parasetamol|\bpct\b|panadol|sanmol/,
+      drop: ["PARACETAMOL_DEWASA", "PARACETAMOL_ANAK", "ALPARA_DEWASA"] },
+    { label: "NSAID", pattern: /nsaid|ibuprofen|asam\s+mefenamat|mefenamat|diclofenac|diklofenak|natrium\s+diclofenac|piroxicam|meloxicam|aspirin|asetosal/,
+      drop: ["IBUPROFEN_400", "IBUPROFEN_ANAK", "DICLOFENAC_50", "ASAM_MEFENAMAT_500_DEWASA"] },
+    { label: "Ciprofloxacin", pattern: /cipro\w*|siprofloksasin|kuinolon|quinolon\w*/, drop: ["CIPROFLOXACIN_500_DEWASA"] },
+    { label: "Metronidazole", pattern: /metronidazol\w*/, drop: ["METRONIDAZOLE_500_DEWASA"] },
+    { label: "CTM/antihistamin", pattern: /\bctm\b|chlorphen\w*|klorfeni\w*|cetirizin\w*|loratadin\w*/,
+      drop: ["CTM_4_DEWASA", "CETIRIZINE_10_DEWASA", "LORATADINE_10_DEWASA", "CETIRIZINE_RACIKAN_BARU", "ALPARA_DEWASA", "ISPA_ANAK", "BAPIL_2_ANAK"] },
+  ];
+  const ALLERGY_CONTEXT = /alergi\s+(?:obat\s+|terhadap\s+|dengan\s+)?(?:[a-z]+\s*,\s*|[a-z]+\s+(?:dan|&)\s+)*/g;
+
+  // v10.3.0: catatan keamanan dari keluhan (tidak mengubah centang).
+  const ANAMNESIS_NOTE_RULES = [
+    { pattern: /\bhamil\b|kehamilan|\banc\b|\bg\d+\s*p\d+\s*a\d+\b|menyusui|\bbusui\b/,
+      note: "Pasien hamil/menyusui: periksa keamanan setiap obat sebelum input (hindari NSAID trimester 3, Ciprofloxacin, dll.)." },
+    { pattern: /\bdbd\b|demam\s+berdarah|dengue|trombosit\s+(?:turun|rendah)/,
+      note: "Curiga dengue: hindari NSAID (Ibuprofen, Diclofenac, Asam Mefenamat)." },
   ];
 
   // v10.2.1: dari obat satu golongan hanya SATU yang disarankan (yang disarankan
@@ -3649,6 +3875,7 @@
     for (const dx of dxList) {
       const keys = dx[group] || [];
       const actions = dx.actions || [];
+      if (dx.note && !result.notes.includes(dx.note)) result.notes.push(dx.note);
       result.matches.push({ label: `Diagnosis ${dx.label}`, keyword: dx.icd[0], keys: [...keys], actions: [...actions] });
       for (const k of keys) if (!result.keys.includes(k)) result.keys.push(k);
       for (const a of actions) if (!result.actionKeys.includes(a)) result.actionKeys.push(a);
@@ -3693,6 +3920,40 @@
       result.notes.push(o.note);
     }
     const itemName = (k) => MEDICATION_ITEMS_FLAT.find((x) => x.key === k)?.label || k;
+    // v10.3.0: obat yang tidak disarankan untuk diagnosis terpilih (mis. NSAID pada dengue).
+    const dropKeys = (drop, note) => {
+      const hit = result.keys.filter((k) => drop.includes(k));
+      if (!hit.length) return;
+      result.keys = result.keys.filter((k) => !drop.includes(k));
+      for (const match of result.matches) match.keys = match.keys.filter((k) => !drop.includes(k));
+      result.notes.push(note(hit.map(itemName).join(", ")));
+    };
+    for (const dx of dxList)
+      if (dx.avoid?.length) dropKeys(dx.avoid, (names) => `${names} tidak disarankan pada ${dx.label}`);
+    for (const r of ANAMNESIS_NOTE_RULES) {
+      const m = r.pattern.exec(lower);
+      if (m && !isKeywordNegated(lower, m.index, m.index + m[0].length) && !result.notes.includes(r.note))
+        result.notes.push(r.note);
+    }
+    // v10.3.0: riwayat alergi obat.
+    for (const ctx of lower.matchAll(ALLERGY_CONTEXT)) {
+      const tail = lower.slice(ctx.index, ctx.index + ctx[0].length + 30);
+      if (isKeywordNegated(lower, ctx.index, ctx.index + ctx[0].length + (tail.slice(ctx[0].length).match(/^[a-z]+/)?.[0].length || 0)))
+        continue;
+      for (const a of DRUG_ALLERGY_RULES) {
+        if (!a.pattern.test(tail)) continue;
+        const already = result.notes.some((n) => n.startsWith(`Riwayat alergi ${a.label}`));
+        if (already) continue;
+        const hit = result.keys.filter((k) => a.drop.includes(k));
+        result.keys = result.keys.filter((k) => !a.drop.includes(k));
+        for (const match of result.matches) match.keys = match.keys.filter((k) => !a.drop.includes(k));
+        result.notes.push(
+          `Riwayat alergi ${a.label}` +
+            (hit.length ? `: ${hit.map(itemName).join(", ")} tidak dicentang` : ": jangan pilih obat ini") +
+            (a.note ? ` (${a.note})` : "") + ".",
+        );
+      }
+    }
     for (const c of ANAMNESIS_SUGGESTION_CLASSES) {
       const hit = result.keys.filter((k) => c.keys.includes(k));
       if (hit.length < 2) continue;
@@ -3827,7 +4088,12 @@
       }
     }
 
+    for (const [k, list] of Object.entries(DIAGNOSIS_RELATED))
+      for (const r of [k, ...list])
+        if (!DIAGNOSIS_TEMPLATES.some((d) => d.key === r)) errors.push(`DIAGNOSIS_RELATED: ${r} tidak ada di DIAGNOSIS_TEMPLATES.`);
     for (const dx of DIAGNOSIS_TEMPLATES) {
+      for (const k of dx.avoid || [])
+        if (!MEDICATION_ITEMS_FLAT.some((x) => x.key === k)) errors.push(`Diagnosis ${dx.key}: avoid ${k} tidak ada.`);
       for (const a of dx.actions || [])
         if (!PACKAGE_ACTIONS.some((x) => x.key === a))
           errors.push(`Diagnosis ${dx.key}: tindakan ${a} tidak ada.`);
