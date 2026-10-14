@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Klinik Pintar - AUTO KLINIK
 // @namespace    klinikpintar-auto
-// @version      10.3.0
+// @version      10.4.0
 // @description  AUTO KLINIK untuk os.klinikpintar.id — RESUME + DIAGNOSIS + RESEP, Resume, Paket Resep Golongan. Tidak pernah menekan Simpan otomatis.
 // @author       taufanmtknight-debug
 // @match        https://os.klinikpintar.id/*
@@ -34,7 +34,7 @@
 
   // Versi diambil dari header (GM_info) agar label launcher tidak pernah beda
   // dengan @version. Nilai cadangan WAJIB sama dengan @version (dicek oleh test).
-  const SCRIPT_VERSION_FALLBACK = "10.3.0";
+  const SCRIPT_VERSION_FALLBACK = "10.4.0";
   const VERSION =
     (typeof GM_info !== "undefined" && GM_info?.script?.version) ||
     SCRIPT_VERSION_FALLBACK;
@@ -149,6 +149,8 @@
     LORATADINE_10: { keyword: "BPJS -- LORATADINE 10 MG", target: "BPJS -- LORATADINE 10 MG", unit: "tablet" },
     CIPROFLOXACIN_500: { keyword: "BPJS -- CIPROFLOXACIN 500 MG", target: "BPJS -- CIPROFLOXACIN 500 MG", unit: "tablet" },
     METRONIDAZOLE_500: { keyword: "BPJS -- METRONIDAZOLE 500 MG", target: "BPJS -- METRONIDAZOLE 500 MG", unit: "tablet" },
+    // v10.4.0: antivirus untuk varisela, herpes zoster, herpes simpleks (permintaan dokter).
+    ACYCLOVIR_400: { keyword: "BPJS -- ACYCLOVIR 400 MG", target: "BPJS -- ACYCLOVIR 400 MG", unit: "tablet" },
   };
 
   // Template rekam medis ISPA DEWASA (menu PENYAKIT dan tombol ISPA di Resep Manual).
@@ -377,7 +379,8 @@
   }
 
   // Racikan (puyer) anak berbasis BB: tiap 5 kg -> +1 tablet tiap bahan.
-  // Semua: dosis 1 bungkus, satuan Pulvis, instruksi racikan "buat 10".
+  // Semua: dosis 1 bungkus, satuan Pulvis, instruksi racikan "buat 10" (count = jumlah puyer
+  // lain, mis. Acyclovir buat 20; jumlah tablet ikut dikali agar dosis per puyer tetap).
   // v9.3: semua kolom racikan wajib terisi. Durasi = 10 bungkus / frekuensi per hari
   // (3x -> 3 hari, 2x -> 5 hari, 1x -> 10 hari), sama dengan pola Racikan ISPA.
   const CHILD_PUYER_SERIES = [
@@ -395,6 +398,10 @@
     { prefix: "BARU_AMOXICILLIN_", title: "AMOXICILLIN", name: "amoxicillin", maxKg: 40, duration: "3", doseFreq: "3", instruction: "setelah makan", items: ["AMOXICILLIN_500"] },
     { prefix: "BARU_CETIRIZINE_", title: "CETIRIZINE", name: "cetirizine", maxKg: 40, duration: "10", doseFreq: "1", instruction: "setelah makan", items: ["CETIRIZINE_10"] },
     { prefix: "BARU_BAPIL2_", title: "BAPIL 2", name: "batuk pilek 2", maxKg: 40, duration: "3", doseFreq: "3", instruction: "setelah makan", items: ["DEXAMETHASONE_05", "CTM_4", "AMBROXOL_30"] },
+    // v10.4.0 (permintaan dokter): Acyclovir anak hanya puyer. 20 mg/kg/kali, 4x sehari, 5 hari
+    // = buat 20 puyer. Tiap 2 kg -> +1 rentang; jumlah 400 mg = rentang x 2 tablet (40 mg/puyer
+    // per rentang), sehingga 40 kg = 800 mg/kali (dosis maksimal).
+    { prefix: "ACYCLOVIR_ANAK_", title: "ACYCLOVIR ANAK", name: "puyer acyclovir", step: 2, maxKg: 40, count: 20, duration: "5", doseFreq: "4", instruction: "tiap 6 jam", items: ["ACYCLOVIR_400"] },
   ];
 
   const RACIKAN_TEMPLATES = {};
@@ -409,8 +416,8 @@
         doseAmount: "1",
         unit: "Pulvis",
         instruction: s.instruction,
-        compoundInstruction: "buat 10",
-        ingredients: s.items.map((item) => ({ item, quantity: String(band.index) })),
+        compoundInstruction: `buat ${s.count || 10}`,
+        ingredients: s.items.map((item) => ({ item, quantity: String((band.index * (s.count || 10)) / 10) })),
       };
     }
   }
@@ -894,6 +901,35 @@
         },
       ],
     },
+    // v10.4.0 (permintaan dokter): regimen PPK FKTP; anak hanya puyer.
+    {
+      key: "ANTIVIRUS",
+      label: "Antivirus",
+      items: [
+        {
+          key: "ACYCLOVIR_800_DEWASA",
+          label: "Acyclovir 400 mg — Varisela / Zoster (2 tab 5×1, 7 hari)",
+          type: "recipe-inline",
+          population: "adult",
+          medicine: { item: "ACYCLOVIR_400", freq: "5", dose: "2", days: "7", total: "70", instruction: "TIAP 4 JAM (5X SEHARI)" },
+        },
+        {
+          key: "ACYCLOVIR_400_DEWASA",
+          label: "Acyclovir 400 mg — Herpes simpleks (3×1, 5 hari)",
+          type: "recipe-inline",
+          population: "adult",
+          medicine: { item: "ACYCLOVIR_400", freq: "3", dose: "1", days: "5", total: "15", instruction: "TIAP 8 JAM" },
+        },
+        {
+          key: "ACYCLOVIR_PUYER_ANAK",
+          label: "Racikan Acyclovir — Anak (BB)",
+          type: "weight-racikan",
+          prefix: "ACYCLOVIR_ANAK_",
+          title: "RACIKAN ACYCLOVIR",
+          population: "child",
+        },
+      ],
+    },
     {
       key: "VITAMIN_SUPLEMEN",
       label: "Vitamin / Suplemen",
@@ -1131,7 +1167,7 @@
     {
       label: "Gatal / alergi",
       // v10.3.0: "alergi amoxicillin" = riwayat alergi obat, bukan keluhan gatal.
-      pattern: /gatal|alergi(?!\s+(?:obat|terhadap|antibiotik|amox|amoksi|peni|ampi|cefa|sefa|paracetamol|parasetamol|pct|ibuprofen|asam\s+mefenamat|mefenamat|diclo|diklo|cipro|metro|sulfa|ctm|nsaid))|biduran|kaligata|urtikaria|bentol|\bbidur|digigit\s+serangga/,
+      pattern: /gatal|alergi(?!\s+(?:obat|terhadap|antibiotik|amox|amoksi|peni|ampi|cefa|sefa|paracetamol|parasetamol|pct|ibuprofen|asam\s+mefenamat|mefenamat|diclo|diklo|cipro|metro|sulfa|ctm|nsaid|acy|asik))|biduran|kaligata|urtikaria|bentol|\bbidur|digigit\s+serangga/,
       adult: ["CETIRIZINE_10_DEWASA"],
       child: ["CETIRIZINE_RACIKAN_BARU"],
     },
@@ -1306,9 +1342,12 @@
     { key: "PANU", label: "Pitiriasis versikolor (panu)", icd: ["B36.0"], query: "pityriasis versicolor",
       adult: [], child: [] },
     { key: "VARICELLA", label: "Varisela (cacar air)", icd: ["B01.9", "B01"], query: "varicella",
-      adult: ["PARACETAMOL_DEWASA", "CETIRIZINE_10_DEWASA"], child: ["PARACETAMOL_ANAK", "CETIRIZINE_RACIKAN_BARU"] },
+      adult: ["ACYCLOVIR_800_DEWASA", "PARACETAMOL_DEWASA", "CETIRIZINE_10_DEWASA"],
+      child: ["ACYCLOVIR_PUYER_ANAK", "PARACETAMOL_ANAK", "CETIRIZINE_RACIKAN_BARU"],
+      note: "Varisela: Acyclovir paling bermanfaat bila dimulai ≤24 jam sejak ruam muncul." },
     { key: "ZOSTER", label: "Herpes zoster", icd: ["B02.9", "B02"], query: "zoster",
-      adult: ["PARACETAMOL_DEWASA"], child: [] },
+      adult: ["ACYCLOVIR_800_DEWASA", "PARACETAMOL_DEWASA"], child: ["ACYCLOVIR_PUYER_ANAK", "PARACETAMOL_ANAK"],
+      note: "Zoster: Acyclovir paling bermanfaat bila dimulai ≤72 jam sejak lesi muncul; zoster di mata/telinga: rujuk." },
     { key: "STOMATITIS", label: "Stomatitis (sariawan)", icd: ["K12.0", "K12.1"], query: "stomatitis",
       adult: [], child: [] },
     { key: "OA_GENU", label: "Osteoartritis lutut", icd: ["M17.9", "M17"], query: "gonarthrosis",
@@ -1377,7 +1416,7 @@
     { key: "GIGITAN_HEWAN", label: "Gigitan hewan", icd: ["T14.1"], query: "open wound",
       adult: [], child: [], note: "Gigitan hewan penular rabies: cuci luka 15 menit dengan sabun, nilai kebutuhan VAR/SAR." },
     { key: "HERPES_SIMPLEX", label: "Herpes simpleks", icd: ["B00.9", "B00.1"], query: "herpes simplex",
-      adult: [], child: [] },
+      adult: ["ACYCLOVIR_400_DEWASA"], child: ["ACYCLOVIR_PUYER_ANAK"] },
     { key: "MORBILI", label: "Campak (morbili)", icd: ["B05.9", "B05"], query: "measles",
       adult: ["PARACETAMOL_DEWASA", "CETIRIZINE_10_DEWASA"], child: ["PARACETAMOL_ANAK", "CETIRIZINE_RACIKAN_BARU"],
       note: "Campak: pertimbangkan vitamin A; laporkan sebagai penyakit potensial wabah." },
@@ -1701,6 +1740,8 @@
       drop: ["IBUPROFEN_400", "IBUPROFEN_ANAK", "DICLOFENAC_50", "ASAM_MEFENAMAT_500_DEWASA"] },
     { label: "Ciprofloxacin", pattern: /cipro\w*|siprofloksasin|kuinolon|quinolon\w*/, drop: ["CIPROFLOXACIN_500_DEWASA"] },
     { label: "Metronidazole", pattern: /metronidazol\w*/, drop: ["METRONIDAZOLE_500_DEWASA"] },
+    { label: "Acyclovir", pattern: /a[cs][iy]?[ck]lovir\w*/,
+      drop: ["ACYCLOVIR_800_DEWASA", "ACYCLOVIR_400_DEWASA", "ACYCLOVIR_PUYER_ANAK"] },
     { label: "CTM/antihistamin", pattern: /\bctm\b|chlorphen\w*|klorfeni\w*|cetirizin\w*|loratadin\w*/,
       drop: ["CTM_4_DEWASA", "CETIRIZINE_10_DEWASA", "LORATADINE_10_DEWASA", "CETIRIZINE_RACIKAN_BARU", "ALPARA_DEWASA", "ISPA_ANAK", "BAPIL_2_ANAK"] },
   ];
@@ -1720,6 +1761,7 @@
     { label: "NSAID", keys: ["IBUPROFEN_400", "DICLOFENAC_50", "ASAM_MEFENAMAT_500_DEWASA"] },
     { label: "kortikosteroid", keys: ["DEXAMETHASONE_05", "METHYLPREDNISOLONE_4_DEWASA"] },
     { label: "antihistamin", keys: ["CETIRIZINE_10_DEWASA", "LORATADINE_10_DEWASA", "CTM_4_DEWASA"] },
+    { label: "Acyclovir", keys: ["ACYCLOVIR_800_DEWASA", "ACYCLOVIR_400_DEWASA"] },
   ];
 
   // ============================================================
