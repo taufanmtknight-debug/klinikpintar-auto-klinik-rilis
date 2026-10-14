@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Klinik Pintar - AUTO KLINIK
 // @namespace    klinikpintar-auto
-// @version      10.4.1
+// @version      10.4.2
 // @description  AUTO KLINIK untuk os.klinikpintar.id — RESUME + DIAGNOSIS + RESEP, Resume, Paket Resep Golongan. Tidak pernah menekan Simpan otomatis.
 // @author       taufanmtknight-debug
 // @match        https://os.klinikpintar.id/*
@@ -34,7 +34,7 @@
 
   // Versi diambil dari header (GM_info) agar label launcher tidak pernah beda
   // dengan @version. Nilai cadangan WAJIB sama dengan @version (dicek oleh test).
-  const SCRIPT_VERSION_FALLBACK = "10.4.1";
+  const SCRIPT_VERSION_FALLBACK = "10.4.2";
   const VERSION =
     (typeof GM_info !== "undefined" && GM_info?.script?.version) ||
     SCRIPT_VERSION_FALLBACK;
@@ -408,6 +408,11 @@
     // = buat 20 puyer. Tiap 2 kg -> +1 rentang; jumlah 400 mg = rentang x 2 tablet (40 mg/puyer
     // per rentang), sehingga 40 kg = 800 mg/kali (dosis maksimal).
     { prefix: "ACYCLOVIR_ANAK_", title: "ACYCLOVIR ANAK", name: "puyer acyclovir", step: 2, maxKg: 40, count: 20, duration: "5", doseFreq: "4", instruction: "tiap 6 jam", items: ["ACYCLOVIR_400"] },
+    // v10.4.2 (permintaan dokter: herpes simpleks anak TIDAK disamakan dengan varisela).
+    // Gingivostomatitis herpetik (AAP Red Book; uji Amir dkk. BMJ 1997): 15 mg/kg/kali,
+    // 5x sehari, 7 hari (maks. 200 mg/kali) = buat 35 puyer. Tiap 3 kg +4 tablet 400 mg
+    // (±46 mg/puyer per rentang = ±15 mg/kg); maksimal 17 tablet (±194 mg/puyer).
+    { prefix: "ACYCLOVIR_HSV_ANAK_", title: "ACYCLOVIR HSV ANAK", name: "puyer acyclovir hsv", step: 3, maxKg: 42, count: 35, qtyPerBand: 4, maxQty: 17, duration: "7", doseFreq: "5", instruction: "tiap 4 jam (5x sehari)", items: ["ACYCLOVIR_400"] },
   ];
 
   const RACIKAN_TEMPLATES = {};
@@ -423,7 +428,10 @@
         unit: "Pulvis",
         instruction: s.instruction,
         compoundInstruction: `buat ${s.count || 10}`,
-        ingredients: s.items.map((item) => ({ item, quantity: String((band.index * (s.count || 10)) / 10) })),
+        ingredients: s.items.map((item) => ({
+          item,
+          quantity: String(Math.min(band.index * (s.qtyPerBand || (s.count || 10) / 10), s.maxQty || Infinity)),
+        })),
       };
     }
   }
@@ -928,10 +936,18 @@
         },
         {
           key: "ACYCLOVIR_PUYER_ANAK",
-          label: "Racikan Acyclovir — Anak (BB)",
+          label: "Racikan Acyclovir Varisela / Zoster — Anak (BB)",
           type: "weight-racikan",
           prefix: "ACYCLOVIR_ANAK_",
           title: "RACIKAN ACYCLOVIR",
+          population: "child",
+        },
+        {
+          key: "ACYCLOVIR_HSV_PUYER_ANAK",
+          label: "Racikan Acyclovir Herpes simpleks — Anak (BB)",
+          type: "weight-racikan",
+          prefix: "ACYCLOVIR_HSV_ANAK_",
+          title: "RACIKAN ACYCLOVIR HSV",
           population: "child",
         },
         {
@@ -1429,7 +1445,7 @@
     { key: "GIGITAN_HEWAN", label: "Gigitan hewan", icd: ["T14.1"], query: "open wound",
       adult: [], child: [], note: "Gigitan hewan penular rabies: cuci luka 15 menit dengan sabun, nilai kebutuhan VAR/SAR." },
     { key: "HERPES_SIMPLEX", label: "Herpes simpleks", icd: ["B00.9", "B00.1"], query: "herpes simplex",
-      adult: ["ACYCLOVIR_400_DEWASA", "ACYCLOVIR_SALEP"], child: ["ACYCLOVIR_PUYER_ANAK", "ACYCLOVIR_SALEP"] },
+      adult: ["ACYCLOVIR_400_DEWASA", "ACYCLOVIR_SALEP"], child: ["ACYCLOVIR_HSV_PUYER_ANAK", "ACYCLOVIR_SALEP"] },
     { key: "MORBILI", label: "Campak (morbili)", icd: ["B05.9", "B05"], query: "measles",
       adult: ["PARACETAMOL_DEWASA", "CETIRIZINE_10_DEWASA"], child: ["PARACETAMOL_ANAK", "CETIRIZINE_RACIKAN_BARU"],
       note: "Campak: pertimbangkan vitamin A; laporkan sebagai penyakit potensial wabah." },
@@ -1754,7 +1770,7 @@
     { label: "Ciprofloxacin", pattern: /cipro\w*|siprofloksasin|kuinolon|quinolon\w*/, drop: ["CIPROFLOXACIN_500_DEWASA"] },
     { label: "Metronidazole", pattern: /metronidazol\w*/, drop: ["METRONIDAZOLE_500_DEWASA"] },
     { label: "Acyclovir", pattern: /a[cs][iy]?[ck]lovir\w*/,
-      drop: ["ACYCLOVIR_800_DEWASA", "ACYCLOVIR_400_DEWASA", "ACYCLOVIR_PUYER_ANAK", "ACYCLOVIR_SALEP"] },
+      drop: ["ACYCLOVIR_800_DEWASA", "ACYCLOVIR_400_DEWASA", "ACYCLOVIR_PUYER_ANAK", "ACYCLOVIR_HSV_PUYER_ANAK", "ACYCLOVIR_SALEP"] },
     { label: "CTM/antihistamin", pattern: /\bctm\b|chlorphen\w*|klorfeni\w*|cetirizin\w*|loratadin\w*/,
       drop: ["CTM_4_DEWASA", "CETIRIZINE_10_DEWASA", "LORATADINE_10_DEWASA", "CETIRIZINE_RACIKAN_BARU", "ALPARA_DEWASA", "ISPA_ANAK", "BAPIL_2_ANAK"] },
   ];
@@ -1775,6 +1791,7 @@
     { label: "kortikosteroid", keys: ["DEXAMETHASONE_05", "METHYLPREDNISOLONE_4_DEWASA"] },
     { label: "antihistamin", keys: ["CETIRIZINE_10_DEWASA", "LORATADINE_10_DEWASA", "CTM_4_DEWASA"] },
     { label: "Acyclovir", keys: ["ACYCLOVIR_800_DEWASA", "ACYCLOVIR_400_DEWASA"] },
+    { label: "Acyclovir anak", keys: ["ACYCLOVIR_PUYER_ANAK", "ACYCLOVIR_HSV_PUYER_ANAK"] },
   ];
 
   // ============================================================
