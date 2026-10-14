@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Klinik Pintar - AUTO KLINIK
 // @namespace    klinikpintar-auto
-// @version      10.4.0
+// @version      10.4.1
 // @description  AUTO KLINIK untuk os.klinikpintar.id — RESUME + DIAGNOSIS + RESEP, Resume, Paket Resep Golongan. Tidak pernah menekan Simpan otomatis.
 // @author       taufanmtknight-debug
 // @match        https://os.klinikpintar.id/*
@@ -34,7 +34,7 @@
 
   // Versi diambil dari header (GM_info) agar label launcher tidak pernah beda
   // dengan @version. Nilai cadangan WAJIB sama dengan @version (dicek oleh test).
-  const SCRIPT_VERSION_FALLBACK = "10.4.0";
+  const SCRIPT_VERSION_FALLBACK = "10.4.1";
   const VERSION =
     (typeof GM_info !== "undefined" && GM_info?.script?.version) ||
     SCRIPT_VERSION_FALLBACK;
@@ -151,6 +151,12 @@
     METRONIDAZOLE_500: { keyword: "BPJS -- METRONIDAZOLE 500 MG", target: "BPJS -- METRONIDAZOLE 500 MG", unit: "tablet" },
     // v10.4.0: antivirus untuk varisela, herpes zoster, herpes simpleks (permintaan dokter).
     ACYCLOVIR_400: { keyword: "BPJS -- ACYCLOVIR 400 MG", target: "BPJS -- ACYCLOVIR 400 MG", unit: "tablet" },
+    ACYCLOVIR_SALEP: {
+      keyword: "BPJS -- ACYCLOVIR 5GR SALEP",
+      target: "BPJS -- ACYCLOVIR 5GR SALEP",
+      unit: "tube",
+      usageUnit: "OLES",
+    },
   };
 
   // Template rekam medis ISPA DEWASA (menu PENYAKIT dan tombol ISPA di Resep Manual).
@@ -928,6 +934,13 @@
           title: "RACIKAN ACYCLOVIR",
           population: "child",
         },
+        {
+          key: "ACYCLOVIR_SALEP",
+          label: "Acyclovir salep 5 g (5×1 oles, 5 hari)",
+          type: "recipe-inline",
+          population: "all",
+          medicine: { item: "ACYCLOVIR_SALEP", freq: "5", dose: "1", days: "5", total: "1", instruction: "5 X 1 OLES" },
+        },
       ],
     },
     {
@@ -1342,8 +1355,8 @@
     { key: "PANU", label: "Pitiriasis versikolor (panu)", icd: ["B36.0"], query: "pityriasis versicolor",
       adult: [], child: [] },
     { key: "VARICELLA", label: "Varisela (cacar air)", icd: ["B01.9", "B01"], query: "varicella",
-      adult: ["ACYCLOVIR_800_DEWASA", "PARACETAMOL_DEWASA", "CETIRIZINE_10_DEWASA"],
-      child: ["ACYCLOVIR_PUYER_ANAK", "PARACETAMOL_ANAK", "CETIRIZINE_RACIKAN_BARU"],
+      adult: ["ACYCLOVIR_800_DEWASA", "ACYCLOVIR_SALEP", "PARACETAMOL_DEWASA", "CETIRIZINE_10_DEWASA"],
+      child: ["ACYCLOVIR_PUYER_ANAK", "ACYCLOVIR_SALEP", "PARACETAMOL_ANAK", "CETIRIZINE_RACIKAN_BARU"],
       note: "Varisela: Acyclovir paling bermanfaat bila dimulai ≤24 jam sejak ruam muncul." },
     { key: "ZOSTER", label: "Herpes zoster", icd: ["B02.9", "B02"], query: "zoster",
       adult: ["ACYCLOVIR_800_DEWASA", "PARACETAMOL_DEWASA"], child: ["ACYCLOVIR_PUYER_ANAK", "PARACETAMOL_ANAK"],
@@ -1416,7 +1429,7 @@
     { key: "GIGITAN_HEWAN", label: "Gigitan hewan", icd: ["T14.1"], query: "open wound",
       adult: [], child: [], note: "Gigitan hewan penular rabies: cuci luka 15 menit dengan sabun, nilai kebutuhan VAR/SAR." },
     { key: "HERPES_SIMPLEX", label: "Herpes simpleks", icd: ["B00.9", "B00.1"], query: "herpes simplex",
-      adult: ["ACYCLOVIR_400_DEWASA"], child: ["ACYCLOVIR_PUYER_ANAK"] },
+      adult: ["ACYCLOVIR_400_DEWASA", "ACYCLOVIR_SALEP"], child: ["ACYCLOVIR_PUYER_ANAK", "ACYCLOVIR_SALEP"] },
     { key: "MORBILI", label: "Campak (morbili)", icd: ["B05.9", "B05"], query: "measles",
       adult: ["PARACETAMOL_DEWASA", "CETIRIZINE_10_DEWASA"], child: ["PARACETAMOL_ANAK", "CETIRIZINE_RACIKAN_BARU"],
       note: "Campak: pertimbangkan vitamin A; laporkan sebagai penyakit potensial wabah." },
@@ -1741,7 +1754,7 @@
     { label: "Ciprofloxacin", pattern: /cipro\w*|siprofloksasin|kuinolon|quinolon\w*/, drop: ["CIPROFLOXACIN_500_DEWASA"] },
     { label: "Metronidazole", pattern: /metronidazol\w*/, drop: ["METRONIDAZOLE_500_DEWASA"] },
     { label: "Acyclovir", pattern: /a[cs][iy]?[ck]lovir\w*/,
-      drop: ["ACYCLOVIR_800_DEWASA", "ACYCLOVIR_400_DEWASA", "ACYCLOVIR_PUYER_ANAK"] },
+      drop: ["ACYCLOVIR_800_DEWASA", "ACYCLOVIR_400_DEWASA", "ACYCLOVIR_PUYER_ANAK", "ACYCLOVIR_SALEP"] },
     { label: "CTM/antihistamin", pattern: /\bctm\b|chlorphen\w*|klorfeni\w*|cetirizin\w*|loratadin\w*/,
       drop: ["CTM_4_DEWASA", "CETIRIZINE_10_DEWASA", "LORATADINE_10_DEWASA", "CETIRIZINE_RACIKAN_BARU", "ALPARA_DEWASA", "ISPA_ANAK", "BAPIL_2_ANAK"] },
   ];
