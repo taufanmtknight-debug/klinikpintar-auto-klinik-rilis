@@ -1,6 +1,6 @@
 # Klinik Pintar — AUTO KLINIK (rilis)
 
-Versi terbaru: **10.4.2**
+Versi terbaru: **10.4.3**
 
 Pasang / perbarui di Violentmonkey (Chrome, Firefox, Edge, Kiwi):
 buka tautan berikut lalu klik **Install / Confirm installation**.

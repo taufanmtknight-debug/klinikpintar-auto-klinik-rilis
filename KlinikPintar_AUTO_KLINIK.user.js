@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Klinik Pintar - AUTO KLINIK
 // @namespace    klinikpintar-auto
-// @version      10.4.2
+// @version      10.4.3
 // @description  AUTO KLINIK untuk os.klinikpintar.id — RESUME + DIAGNOSIS + RESEP, Resume, Paket Resep Golongan. Tidak pernah menekan Simpan otomatis.
 // @author       taufanmtknight-debug
 // @match        https://os.klinikpintar.id/*
@@ -34,7 +34,7 @@
 
   // Versi diambil dari header (GM_info) agar label launcher tidak pernah beda
   // dengan @version. Nilai cadangan WAJIB sama dengan @version (dicek oleh test).
-  const SCRIPT_VERSION_FALLBACK = "10.4.2";
+  const SCRIPT_VERSION_FALLBACK = "10.4.3";
   const VERSION =
     (typeof GM_info !== "undefined" && GM_info?.script?.version) ||
     SCRIPT_VERSION_FALLBACK;
@@ -404,15 +404,16 @@
     { prefix: "BARU_AMOXICILLIN_", title: "AMOXICILLIN", name: "amoxicillin", maxKg: 40, duration: "3", doseFreq: "3", instruction: "setelah makan", items: ["AMOXICILLIN_500"] },
     { prefix: "BARU_CETIRIZINE_", title: "CETIRIZINE", name: "cetirizine", maxKg: 40, duration: "10", doseFreq: "1", instruction: "setelah makan", items: ["CETIRIZINE_10"] },
     { prefix: "BARU_BAPIL2_", title: "BAPIL 2", name: "batuk pilek 2", maxKg: 40, duration: "3", doseFreq: "3", instruction: "setelah makan", items: ["DEXAMETHASONE_05", "CTM_4", "AMBROXOL_30"] },
-    // v10.4.0 (permintaan dokter): Acyclovir anak hanya puyer. 20 mg/kg/kali, 4x sehari, 5 hari
-    // = buat 20 puyer. Tiap 2 kg -> +1 rentang; jumlah 400 mg = rentang x 2 tablet (40 mg/puyer
-    // per rentang), sehingga 40 kg = 800 mg/kali (dosis maksimal).
-    { prefix: "ACYCLOVIR_ANAK_", title: "ACYCLOVIR ANAK", name: "puyer acyclovir", step: 2, maxKg: 40, count: 20, duration: "5", doseFreq: "4", instruction: "tiap 6 jam", items: ["ACYCLOVIR_400"] },
+    // v10.4.0 (permintaan dokter): Acyclovir anak hanya puyer, tablet 400 mg.
+    // v10.4.3: jumlah obat untuk 3 hari dulu (permintaan dokter). Rentang tiap 1 kg; jumlah
+    // tablet = dibulatkan ke atas agar BB batas atas rentang mendapat >= mgPerKg, dan
+    // dibatasi maxMg/kali (dibulatkan ke bawah).
+    // Varisela / zoster: 20 mg/kg/kali, 4x sehari, maks. 800 mg/kali -> 3 hari = buat 12.
+    { prefix: "ACYCLOVIR_ANAK_", title: "ACYCLOVIR ANAK", name: "puyer acyclovir", step: 1, maxKg: 40, count: 12, mgPerKg: 20, tabletMg: 400, maxMg: 800, duration: "3", doseFreq: "4", instruction: "tiap 6 jam", items: ["ACYCLOVIR_400"] },
     // v10.4.2 (permintaan dokter: herpes simpleks anak TIDAK disamakan dengan varisela).
     // Gingivostomatitis herpetik (AAP Red Book; uji Amir dkk. BMJ 1997): 15 mg/kg/kali,
-    // 5x sehari, 7 hari (maks. 200 mg/kali) = buat 35 puyer. Tiap 3 kg +4 tablet 400 mg
-    // (±46 mg/puyer per rentang = ±15 mg/kg); maksimal 17 tablet (±194 mg/puyer).
-    { prefix: "ACYCLOVIR_HSV_ANAK_", title: "ACYCLOVIR HSV ANAK", name: "puyer acyclovir hsv", step: 3, maxKg: 42, count: 35, qtyPerBand: 4, maxQty: 17, duration: "7", doseFreq: "5", instruction: "tiap 4 jam (5x sehari)", items: ["ACYCLOVIR_400"] },
+    // 5x sehari, maks. 200 mg/kali -> 3 hari = buat 15.
+    { prefix: "ACYCLOVIR_HSV_ANAK_", title: "ACYCLOVIR HSV ANAK", name: "puyer acyclovir hsv", step: 1, maxKg: 40, count: 15, mgPerKg: 15, tabletMg: 400, maxMg: 200, duration: "3", doseFreq: "5", instruction: "tiap 4 jam (5x sehari)", items: ["ACYCLOVIR_400"] },
   ];
 
   const RACIKAN_TEMPLATES = {};
@@ -430,7 +431,11 @@
         compoundInstruction: `buat ${s.count || 10}`,
         ingredients: s.items.map((item) => ({
           item,
-          quantity: String(Math.min(band.index * (s.qtyPerBand || (s.count || 10) / 10), s.maxQty || Infinity)),
+          quantity: String(
+            s.mgPerKg
+              ? Math.min(Math.ceil((s.mgPerKg * band.maxKg * s.count) / s.tabletMg - 1e-9), Math.floor((s.maxMg * s.count) / s.tabletMg))
+              : band.index,
+          ),
         })),
       };
     }
@@ -922,17 +927,17 @@
       items: [
         {
           key: "ACYCLOVIR_800_DEWASA",
-          label: "Acyclovir 400 mg — Varisela / Zoster (2 tab 5×1, 7 hari)",
+          label: "Acyclovir 400 mg — Varisela / Zoster (2 tab 5×1, 3 hari)",
           type: "recipe-inline",
           population: "adult",
-          medicine: { item: "ACYCLOVIR_400", freq: "5", dose: "2", days: "7", total: "70", instruction: "TIAP 4 JAM (5X SEHARI)" },
+          medicine: { item: "ACYCLOVIR_400", freq: "5", dose: "2", days: "3", total: "30", instruction: "TIAP 4 JAM (5X SEHARI)" },
         },
         {
           key: "ACYCLOVIR_400_DEWASA",
-          label: "Acyclovir 400 mg — Herpes simpleks (3×1, 5 hari)",
+          label: "Acyclovir 400 mg — Herpes simpleks (3×1, 3 hari)",
           type: "recipe-inline",
           population: "adult",
-          medicine: { item: "ACYCLOVIR_400", freq: "3", dose: "1", days: "5", total: "15", instruction: "TIAP 8 JAM" },
+          medicine: { item: "ACYCLOVIR_400", freq: "3", dose: "1", days: "3", total: "9", instruction: "TIAP 8 JAM" },
         },
         {
           key: "ACYCLOVIR_PUYER_ANAK",
