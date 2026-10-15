@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Klinik Pintar - AUTO KLINIK
 // @namespace    klinikpintar-auto
-// @version      10.7.0
+// @version      10.8.0
 // @description  AUTO KLINIK untuk os.klinikpintar.id — RESUME + DIAGNOSIS + RESEP, Resume, Paket Resep Golongan, Tanya AI. Tidak pernah menekan Simpan otomatis.
 // @author       taufanmtknight-debug
 // @match        https://os.klinikpintar.id/*
@@ -39,7 +39,7 @@
 
   // Versi diambil dari header (GM_info) agar label launcher tidak pernah beda
   // dengan @version. Nilai cadangan WAJIB sama dengan @version (dicek oleh test).
-  const SCRIPT_VERSION_FALLBACK = "10.7.0";
+  const SCRIPT_VERSION_FALLBACK = "10.8.0";
   const VERSION =
     (typeof GM_info !== "undefined" && GM_info?.script?.version) ||
     SCRIPT_VERSION_FALLBACK;
@@ -5505,8 +5505,25 @@
   // ============================================================
 
   const AI_API_URL = "https://api.anthropic.com/v1/messages";
-  const AI_MODEL = "claude-opus-5-5";
+  // v10.8.0: model bisa dipilih. Harga USD per 1 juta token (input, output).
+  const AI_MODELS = [
+    { id: "claude-opus-5-5", label: "Opus 5.5", hint: "terbaik", inUsd: 4, outUsd: 20, fallback: true },
+    { id: "claude-sonnet-5-5", label: "Sonnet 5.5", hint: "± ½ biaya Opus", inUsd: 2, outUsd: 10, fallback: true },
+    { id: "claude-haiku-5-5", label: "Haiku 5.5", hint: "paling murah", inUsd: 0.1, outUsd: 0.5, fallback: false },
+  ];
+  const AI_MODEL = AI_MODELS[0].id;
   const AI_KEY_STORE = "ak_ai_api_key";
+  const AI_MODEL_STORE = "ak_ai_model";
+  const aiModelInfo = (id) => AI_MODELS.find((m) => m.id === id) || AI_MODELS[0];
+
+  // Biaya satu jawaban dari `usage` API, dalam USD (pure, diuji). Perkiraan:
+  // token cache dihitung dengan tarif input biasa.
+  function aiCostUsd(modelId, usage) {
+    const m = aiModelInfo(modelId);
+    const u = usage || {};
+    const input = (u.input_tokens || 0) + (u.cache_creation_input_tokens || 0) + (u.cache_read_input_tokens || 0);
+    return (input * m.inUsd + (u.output_tokens || 0) * m.outUsd) / 1e6;
+  }
   const AI_MAX_IMAGES = 4;
 
   // Daftar obat yang tersedia di klinik (dari master ITEMS), supaya saran AI
@@ -5581,20 +5598,21 @@
   }
 
   // Permintaan ke Messages API (pure, diuji).
-  function buildAiRequest(messages, apiKey, { fallback = true } = {}) {
+  function buildAiRequest(messages, apiKey, { fallback = true, model = AI_MODEL } = {}) {
+    const info = aiModelInfo(model);
     const headers = {
       "content-type": "application/json",
       "x-api-key": String(apiKey || "").trim(),
       "anthropic-version": "2023-06-01",
     };
     const body = {
-      model: AI_MODEL,
+      model: info.id,
       max_tokens: 16000,
       system: AI_SYSTEM_PROMPT,
       output_config: { effort: "medium" },
       messages,
     };
-    if (fallback) {
+    if (fallback && info.fallback) {
       // Bila pertanyaan ditolak filter keamanan, server mencoba model cadangan.
       headers["anthropic-beta"] = "server-side-fallback-2026-07-01";
       body.fallbacks = "default";
@@ -5626,7 +5644,7 @@
       .join("")
       .trim();
     const refused = payload?.stop_reason === "refusal";
-    return { text: answer, content, refused, truncated: payload?.stop_reason === "max_tokens" };
+    return { text: answer, content, refused, truncated: payload?.stop_reason === "max_tokens", usage: payload?.usage || null, model: payload?.model || "" };
   }
 
   // Markdown sederhana -> HTML aman (pure, diuji). Semua teks di-escape dulu.
@@ -5733,11 +5751,24 @@
     });
   }
 
-  async function aiAsk(messages, apiKey) {
-    let res = await aiHttpPost(buildAiRequest(messages, apiKey));
+  function aiGetModel() {
+    try {
+      if (aiStorageOk()) return aiModelInfo(GM_getValue(AI_MODEL_STORE, AI_MODEL)).id;
+    } catch (_) {}
+    return aiChat.model || AI_MODEL;
+  }
+  function aiSetModel(id) {
+    aiChat.model = aiModelInfo(id).id;
+    try {
+      if (aiStorageOk()) GM_setValue(AI_MODEL_STORE, aiChat.model);
+    } catch (_) {}
+  }
+
+  async function aiAsk(messages, apiKey, model) {
+    let res = await aiHttpPost(buildAiRequest(messages, apiKey, { model }));
     // Bila akun belum mendukung model cadangan, ulangi tanpa fitur itu.
     if (res.status === 400 && /fallback/i.test(res.payload?.error?.message || ""))
-      res = await aiHttpPost(buildAiRequest(messages, apiKey, { fallback: false }));
+      res = await aiHttpPost(buildAiRequest(messages, apiKey, { fallback: false, model }));
     return parseAiResponse(res.status, res.payload);
   }
 
@@ -5768,7 +5799,7 @@
   }
 
   // Percakapan disimpan di memori saja (hilang saat halaman dimuat ulang).
-  const aiChat = { messages: [], view: [], pageKey: "", busy: false, images: [] };
+  const aiChat = { messages: [], view: [], pageKey: "", busy: false, images: [], model: "", convModel: "" };
 
   const AI_QUICK_PROMPTS = [
     ["Diagnosis banding", "Apa diagnosis banding untuk pasien ini, dan pemeriksaan apa yang membedakannya?"],
@@ -5816,6 +5847,7 @@
     <textarea class="ak-ai-input" rows="3" placeholder="Tulis pertanyaan… (Ctrl+Enter untuk kirim)"></textarea>
     <div class="ak-ai-actions">
       <label class="ak-ai-attach" title="Lampirkan foto (lesi kulit, hasil lab, EKG)">📷 Foto<input type="file" accept="image/*" multiple hidden></label>
+      <select class="ak-ai-model" title="Model AI (ganti model = percakapan baru)">${AI_MODELS.map((m) => `<option value="${m.id}">${escapePreviewHtml(`${m.label} · ${m.hint}`)}</option>`).join("")}</select>
       <button type="button" class="ak-ai-send" data-act="send">Kirim</button>
     </div>
   </div>`;
@@ -5851,7 +5883,7 @@
               if (m.role === "user")
                 return `<div class="ak-ai-msg ak-ai-user">${m.images?.length ? `<div class="ak-ai-msg-imgs">${m.images.map((u) => `<img src="${u}" alt="">`).join("")}</div>` : ""}${escapePreviewHtml(m.text).replace(/\n/g, "<br>")}${m.withContext ? '<div class="ak-ai-tag">📎 data klinis disertakan</div>' : ""}</div>`;
               if (m.role === "error") return `<div class="ak-ai-msg ak-ai-error">${escapePreviewHtml(m.text)}</div>`;
-              return `<div class="ak-ai-msg ak-ai-bot">${aiAnswerToHtml(m.text)}${m.note ? `<div class="ak-ai-tag">${escapePreviewHtml(m.note)}</div>` : ""}<button type="button" class="ak-ai-copy" data-copy="${i}">Salin</button></div>`;
+              return `<div class="ak-ai-msg ak-ai-bot">${aiAnswerToHtml(m.text)}${m.note ? `<div class="ak-ai-tag">${escapePreviewHtml(m.note)}</div>` : ""}${m.meta ? `<div class="ak-ai-meta">${escapePreviewHtml(m.meta)}</div>` : ""}<button type="button" class="ak-ai-copy" data-copy="${i}">Salin</button></div>`;
             })
             .join("")
         : `<div class="ak-ai-empty">${notice ? `<b>${escapePreviewHtml(notice)}</b><br>` : ""}Tanyakan apa saja: diagnosis banding, dosis obat, interaksi, kriteria rujukan, edukasi pasien, atau kirim foto lesi/hasil lab.${onRecord ? "" : "<br><br>Data klinis pasien hanya bisa disertakan dari halaman Buat Rekam Medis."}</div>`;
@@ -5871,6 +5903,23 @@
       renderLog();
     };
     sendBtn.disabled = aiChat.busy;
+
+    // Ganti model = percakapan baru (riwayat model lain tidak dibawa); pertanyaan
+    // terakhir dikembalikan ke kotak teks supaya bisa dibandingkan dengan model ini.
+    const modelSelect = $(".ak-ai-model");
+    modelSelect.value = aiGetModel();
+    modelSelect.addEventListener("change", () => {
+      if (aiChat.busy) return (modelSelect.value = aiGetModel());
+      aiSetModel(modelSelect.value);
+      if (aiChat.messages.length && aiChat.convModel && aiChat.convModel !== modelSelect.value) {
+        const lastQ = [...aiChat.view].reverse().find((m) => m.role === "user")?.text || "";
+        aiChat.messages = [];
+        aiChat.view = [];
+        notice = `Model diganti ke ${aiModelInfo(modelSelect.value).label}: percakapan baru. Pertanyaan terakhir sudah dikembalikan, tekan Kirim untuk membandingkan jawabannya.`;
+        if (lastQ && !input.value.trim()) input.value = lastQ;
+        renderLog();
+      }
+    });
 
     const updateCtxPreview = () => {
       if (!ctxCheck.checked) return (ctxPreview.hidden = true);
@@ -5903,7 +5952,9 @@
       sendBtn.disabled = true;
       renderLog();
       try {
-        const res = await aiAsk(aiChat.messages, apiKey);
+        const model = aiGetModel();
+        aiChat.convModel = model;
+        const res = await aiAsk(aiChat.messages, apiKey, model);
         if (!res.text) {
           aiChat.messages.pop(); // pertanyaan tidak terjawab: tidak disimpan di riwayat
           aiChat.view.push({
@@ -5915,7 +5966,14 @@
         } else {
           // Jawaban disimpan utuh (append-only) supaya percakapan lanjutan konsisten.
           aiChat.messages.push({ role: "assistant", content: res.content });
-          aiChat.view.push({ role: "bot", text: res.text, note: res.truncated ? "Jawaban terpotong karena terlalu panjang." : "" });
+          const cost = res.usage ? aiCostUsd(model, res.usage) : null;
+          const served = AI_MODELS.find((m) => m.id === res.model)?.label || aiModelInfo(model).label;
+          aiChat.view.push({
+            role: "bot",
+            text: res.text,
+            note: res.truncated ? "Jawaban terpotong karena terlalu panjang." : "",
+            meta: `${served}${cost != null ? ` · ±$${cost.toFixed(3)} (Rp ±${Math.round(cost * 16500).toLocaleString("id-ID")})` : ""}`,
+          });
         }
       } catch (err) {
         aiChat.messages.pop();
@@ -6575,7 +6633,10 @@
     #ak-ai-panel .ak-ai-actions{display:flex!important;justify-content:space-between!important;align-items:center!important;gap:8px!important;}
     #ak-ai-panel .ak-ai-attach{padding:8px 12px!important;border:1.5px solid #94a3b8!important;border-radius:10px!important;background:#fff!important;
       color:#334155!important;font:700 13px ${AK_FONT}!important;cursor:pointer!important;}
-    #ak-ai-panel .ak-ai-send{min-width:110px!important;height:42px!important;border:0!important;border-radius:12px!important;background:#7c3aed!important;
+    #ak-ai-panel .ak-ai-model{flex:1!important;min-width:0!important;height:38px!important;padding:0 8px!important;border:1.5px solid #94a3b8!important;
+      border-radius:10px!important;background:#fff!important;color:#334155!important;font:600 12.5px ${AK_FONT}!important;}
+    #ak-ai-panel .ak-ai-meta{margin-top:6px!important;font:600 11px/1.3 ${AK_FONT}!important;color:#64748b!important;}
+    #ak-ai-panel .ak-ai-send{min-width:96px!important;height:42px!important;border:0!important;border-radius:12px!important;background:#7c3aed!important;
       color:#fff!important;font:800 15px ${AK_FONT}!important;cursor:pointer!important;box-shadow:0 4px 12px rgba(124,58,237,.3)!important;}
     #ak-ai-panel .ak-ai-send:disabled{background:#94a3b8!important;cursor:wait!important;box-shadow:none!important;}
   `;
@@ -6681,6 +6742,8 @@
       makeZincChildRecipe,
       collectBhpForActions,
       AI_MODEL,
+      AI_MODELS,
+      aiCostUsd,
       AI_SYSTEM_PROMPT,
       buildAiClinicalContext,
       buildAiUserContent,
