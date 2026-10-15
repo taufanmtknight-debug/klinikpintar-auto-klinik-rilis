@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Klinik Pintar - AUTO KLINIK
 // @namespace    klinikpintar-auto
-// @version      10.8.0
+// @version      10.9.0
 // @description  AUTO KLINIK untuk os.klinikpintar.id — RESUME + DIAGNOSIS + RESEP, Resume, Paket Resep Golongan, Tanya AI. Tidak pernah menekan Simpan otomatis.
 // @author       taufanmtknight-debug
 // @match        https://os.klinikpintar.id/*
@@ -39,7 +39,7 @@
 
   // Versi diambil dari header (GM_info) agar label launcher tidak pernah beda
   // dengan @version. Nilai cadangan WAJIB sama dengan @version (dicek oleh test).
-  const SCRIPT_VERSION_FALLBACK = "10.8.0";
+  const SCRIPT_VERSION_FALLBACK = "10.9.0";
   const VERSION =
     (typeof GM_info !== "undefined" && GM_info?.script?.version) ||
     SCRIPT_VERSION_FALLBACK;
@@ -5511,10 +5511,12 @@
     { id: "claude-sonnet-5-5", label: "Sonnet 5.5", hint: "± ½ biaya Opus", inUsd: 2, outUsd: 10, fallback: true },
     { id: "claude-haiku-5-5", label: "Haiku 5.5", hint: "paling murah", inUsd: 0.1, outUsd: 0.5, fallback: false },
   ];
-  const AI_MODEL = AI_MODELS[0].id;
+  // v10.9.0: bawaan Haiku (permintaan dokter: paling hemat).
+  const AI_MODEL = "claude-haiku-5-5";
   const AI_KEY_STORE = "ak_ai_api_key";
   const AI_MODEL_STORE = "ak_ai_model";
-  const aiModelInfo = (id) => AI_MODELS.find((m) => m.id === id) || AI_MODELS[0];
+  const aiModelInfo = (id) =>
+    AI_MODELS.find((m) => m.id === id) || AI_MODELS.find((m) => m.id === AI_MODEL);
 
   // Biaya satu jawaban dari `usage` API, dalam USD (pure, diuji). Perkiraan:
   // token cache dihitung dengan tarif input biasa.
@@ -5826,6 +5828,7 @@
   <div class="ak-ai-head">
     <div><div class="ak-ai-title">🤖 Tanya AI</div><div class="ak-ai-sub">Claude (Anthropic) · bantuan keputusan, bukan pengganti penilaian dokter</div></div>
     <div class="ak-ai-head-btns">
+      <button type="button" class="ak-ai-iconbtn" data-act="size" title="Perbesar / perkecil panel">⤢</button>
       <button type="button" class="ak-ai-iconbtn" data-act="new" title="Percakapan baru">＋</button>
       <button type="button" class="ak-ai-iconbtn" data-act="settings" title="Pengaturan API key">⚙</button>
       <button type="button" class="ak-ai-iconbtn" data-act="close" title="Tutup">×</button>
@@ -5844,13 +5847,14 @@
     <details class="ak-ai-ctx-preview" hidden><summary>Lihat data yang akan dikirim</summary><pre></pre></details>
     <div class="ak-ai-chips">${AI_QUICK_PROMPTS.map(([l], i) => `<button type="button" data-chip="${i}">${escapePreviewHtml(l)}</button>`).join("")}</div>
     <div class="ak-ai-thumbs"></div>
-    <textarea class="ak-ai-input" rows="3" placeholder="Tulis pertanyaan… (Ctrl+Enter untuk kirim)"></textarea>
+    <textarea class="ak-ai-input" rows="2" placeholder="Tulis pertanyaan… (Ctrl+Enter untuk kirim)"></textarea>
     <div class="ak-ai-actions">
       <label class="ak-ai-attach" title="Lampirkan foto (lesi kulit, hasil lab, EKG)">📷 Foto<input type="file" accept="image/*" multiple hidden></label>
       <select class="ak-ai-model" title="Model AI (ganti model = percakapan baru)">${AI_MODELS.map((m) => `<option value="${m.id}">${escapePreviewHtml(`${m.label} · ${m.hint}`)}</option>`).join("")}</select>
       <button type="button" class="ak-ai-send" data-act="send">Kirim</button>
     </div>
   </div>`;
+    if (aiChat.full) panel.classList.add("ak-ai-full");
     (document.body || document.documentElement).appendChild(panel);
 
     const $ = (sel) => panel.querySelector(sel);
@@ -5947,6 +5951,7 @@
       aiChat.view.push({ role: "user", text: question, withContext: !!context, images: images.map((i) => i.url) });
       aiChat.images = [];
       input.value = "";
+      ctxPreview.open = false; // beri ruang untuk jawaban
       renderThumbs();
       aiChat.busy = true;
       sendBtn.disabled = true;
@@ -5990,6 +5995,10 @@
       if (!t || !panel.contains(t)) return;
       const act = t.dataset.act;
       if (act === "close") return close();
+      if (act === "size") {
+        aiChat.full = !aiChat.full;
+        return panel.classList.toggle("ak-ai-full", aiChat.full);
+      }
       if (act === "settings") return (settings.hidden = !settings.hidden);
       if (act === "send") return send();
       if (act === "new") {
@@ -6564,18 +6573,22 @@
     .ai-notify{font-size:13px!important;font-weight:600!important;}
 
     /* ---------- Tanya AI (panel kanan; halaman tetap bisa dipakai) ---------- */
-    #ak-ai-panel{position:fixed!important;top:0!important;right:0!important;bottom:0!important;z-index:2147483645!important;
+    /* v10.9.0: setengah layar bagian atas kanan, agar tidak tertutup tombol chat Klinik Pintar di kanan bawah. */
+    #ak-ai-panel{position:fixed!important;top:0!important;right:0!important;bottom:auto!important;z-index:2147483645!important;
+      height:50vh!important;min-height:340px!important;max-height:100vh!important;border-bottom:2px solid #cbd5e1!important;border-bottom-left-radius:14px!important;overflow:hidden!important;
       width:min(460px,100vw)!important;display:flex!important;flex-direction:column!important;background:#f8fafc!important;
       border-left:1px solid #cbd5e1!important;box-shadow:-12px 0 36px rgba(15,23,42,.22)!important;box-sizing:border-box!important;
       font:500 14px/1.5 ${AK_FONT}!important;color:#0f172a!important;}
+    #ak-ai-panel.ak-ai-full{height:100vh!important;height:100dvh!important;border-bottom-left-radius:0!important;}
     #ak-ai-panel *{box-sizing:border-box!important;}
     #ak-ai-panel [hidden]{display:none!important;}
+    #ak-ai-panel .ak-ai-head,#ak-ai-panel .ak-ai-privacy,#ak-ai-panel .ak-ai-settings{flex:none!important;}
     #ak-ai-panel .ak-ai-head{display:flex!important;align-items:center!important;justify-content:space-between!important;gap:8px!important;
-      padding:12px 12px 12px 16px!important;background:#1e293b!important;border-bottom:3px solid #7c3aed!important;color:#fff!important;}
+      padding:8px 10px 8px 14px!important;background:#1e293b!important;border-bottom:3px solid #7c3aed!important;color:#fff!important;}
     #ak-ai-panel .ak-ai-title{font:800 17px/1.2 ${AK_FONT}!important;color:#fff!important;}
     #ak-ai-panel .ak-ai-sub{font:500 11.5px/1.35 ${AK_FONT}!important;color:#cbd5e1!important;margin-top:2px!important;}
     #ak-ai-panel .ak-ai-head-btns{display:flex!important;gap:6px!important;flex:none!important;}
-    #ak-ai-panel .ak-ai-iconbtn{width:36px!important;height:36px!important;border:0!important;border-radius:10px!important;background:#334155!important;
+    #ak-ai-panel .ak-ai-iconbtn{width:34px!important;height:34px!important;border:0!important;border-radius:10px!important;background:#334155!important;
       color:#fff!important;font:400 19px/1 ${AK_FONT}!important;cursor:pointer!important;padding:0!important;}
     #ak-ai-panel .ak-ai-iconbtn:hover{background:#475569!important;}
     #ak-ai-panel .ak-ai-settings{padding:12px 16px!important;background:#ede9fe!important;border-bottom:1px solid #c4b5fd!important;}
@@ -6589,9 +6602,9 @@
     #ak-ai-panel .ak-ai-settings button{height:34px!important;padding:0 12px!important;border:0!important;border-radius:10px!important;
       background:#7c3aed!important;color:#fff!important;font:700 13px ${AK_FONT}!important;cursor:pointer!important;}
     #ak-ai-panel .ak-ai-key-status button{height:28px!important;background:#fff!important;color:#7c3aed!important;border:1px solid #a78bfa!important;}
-    #ak-ai-panel .ak-ai-privacy{padding:8px 16px!important;background:#fffbeb!important;border-bottom:1px solid #fde68a!important;
+    #ak-ai-panel .ak-ai-privacy{padding:5px 14px!important;background:#fffbeb!important;border-bottom:1px solid #fde68a!important;
       font:600 12px/1.4 ${AK_FONT}!important;color:#92400e!important;}
-    #ak-ai-panel .ak-ai-log{flex:1!important;overflow:auto!important;padding:14px 12px!important;display:flex!important;flex-direction:column!important;gap:10px!important;}
+    #ak-ai-panel .ak-ai-log{flex:1 1 auto!important;min-height:0!important;overflow:auto!important;padding:10px!important;display:flex!important;flex-direction:column!important;gap:10px!important;}
     #ak-ai-panel .ak-ai-empty{margin:auto 8px!important;text-align:center!important;color:#475569!important;font:500 13.5px/1.55 ${AK_FONT}!important;}
     #ak-ai-panel .ak-ai-msg{max-width:92%!important;padding:10px 12px!important;border-radius:14px!important;word-break:break-word!important;
       font:500 14px/1.55 ${AK_FONT}!important;}
@@ -6609,16 +6622,17 @@
       background:#f8fafc!important;color:#475569!important;font:600 12px ${AK_FONT}!important;cursor:pointer!important;}
     #ak-ai-panel .ak-ai-msg-imgs{display:flex!important;flex-wrap:wrap!important;gap:4px!important;margin-bottom:6px!important;}
     #ak-ai-panel .ak-ai-msg-imgs img{width:72px!important;height:72px!important;object-fit:cover!important;border-radius:8px!important;}
-    #ak-ai-panel .ak-ai-compose{padding:10px 12px 12px!important;background:#fff!important;border-top:2px solid #e2e8f0!important;
-      display:flex!important;flex-direction:column!important;gap:8px!important;}
+    #ak-ai-panel .ak-ai-compose{flex:none!important;padding:8px 10px 10px!important;background:#fff!important;border-top:2px solid #e2e8f0!important;
+      display:flex!important;flex-direction:column!important;gap:6px!important;}
     #ak-ai-panel .ak-ai-ctx{display:flex!important;gap:8px!important;align-items:flex-start!important;font:700 13px/1.35 ${AK_FONT}!important;color:#1e293b!important;cursor:pointer!important;}
     #ak-ai-panel .ak-ai-ctx input{margin-top:2px!important;width:17px!important;height:17px!important;accent-color:#7c3aed!important;flex:none!important;}
     #ak-ai-panel .ak-ai-ctx small{display:block!important;font:500 11.5px/1.35 ${AK_FONT}!important;color:#64748b!important;}
     #ak-ai-panel .ak-ai-ctx-preview{font:500 12px ${AK_FONT}!important;color:#475569!important;}
     #ak-ai-panel .ak-ai-ctx-preview summary{cursor:pointer!important;font-weight:700!important;color:#6d28d9!important;}
-    #ak-ai-panel .ak-ai-ctx-preview pre{white-space:pre-wrap!important;margin:4px 0 0!important;padding:8px!important;max-height:140px!important;overflow:auto!important;
+    #ak-ai-panel .ak-ai-ctx-preview pre{white-space:pre-wrap!important;margin:4px 0 0!important;padding:8px!important;max-height:72px!important;overflow:auto!important;
       background:#f1f5f9!important;border-radius:8px!important;font:500 12px/1.45 ${AK_FONT}!important;color:#334155!important;}
-    #ak-ai-panel .ak-ai-chips{display:flex!important;flex-wrap:wrap!important;gap:6px!important;}
+    #ak-ai-panel .ak-ai-chips{display:flex!important;flex-wrap:nowrap!important;gap:6px!important;overflow-x:auto!important;scrollbar-width:none!important;}
+    #ak-ai-panel .ak-ai-chips button{flex:none!important;white-space:nowrap!important;}
     #ak-ai-panel .ak-ai-chips button{padding:5px 10px!important;border:1px solid #c4b5fd!important;border-radius:999px!important;background:#f5f3ff!important;
       color:#5b21b6!important;font:600 12px ${AK_FONT}!important;cursor:pointer!important;}
     #ak-ai-panel .ak-ai-thumbs{display:flex!important;flex-wrap:wrap!important;gap:6px!important;}
@@ -6627,7 +6641,7 @@
     #ak-ai-panel .ak-ai-thumb img{width:56px!important;height:56px!important;object-fit:cover!important;border-radius:8px!important;border:1px solid #cbd5e1!important;}
     #ak-ai-panel .ak-ai-thumb button{position:absolute!important;top:-6px!important;right:-6px!important;width:20px!important;height:20px!important;padding:0!important;
       border:0!important;border-radius:999px!important;background:#b91c1c!important;color:#fff!important;font:700 13px/20px ${AK_FONT}!important;cursor:pointer!important;}
-    #ak-ai-panel .ak-ai-input{width:100%!important;min-height:72px!important;max-height:40vh!important;resize:vertical!important;padding:10px!important;
+    #ak-ai-panel .ak-ai-input{width:100%!important;min-height:46px!important;max-height:25vh!important;resize:vertical!important;padding:10px!important;
       border:1.5px solid #94a3b8!important;border-radius:12px!important;background:#fff!important;color:#0f172a!important;font:500 14.5px/1.45 ${AK_FONT}!important;}
     #ak-ai-panel .ak-ai-input:focus{outline:none!important;border-color:#7c3aed!important;box-shadow:0 0 0 3px rgba(124,58,237,.18)!important;}
     #ak-ai-panel .ak-ai-actions{display:flex!important;justify-content:space-between!important;align-items:center!important;gap:8px!important;}
@@ -6638,6 +6652,10 @@
     #ak-ai-panel .ak-ai-meta{margin-top:6px!important;font:600 11px/1.3 ${AK_FONT}!important;color:#64748b!important;}
     #ak-ai-panel .ak-ai-send{min-width:96px!important;height:42px!important;border:0!important;border-radius:12px!important;background:#7c3aed!important;
       color:#fff!important;font:800 15px ${AK_FONT}!important;cursor:pointer!important;box-shadow:0 4px 12px rgba(124,58,237,.3)!important;}
+    @media (max-width:600px){
+      #ak-ai-panel .ak-ai-sub{display:none!important;}
+      #ak-ai-panel .ak-ai-ctx small{display:none!important;}
+    }
     #ak-ai-panel .ak-ai-send:disabled{background:#94a3b8!important;cursor:wait!important;box-shadow:none!important;}
   `;
 
