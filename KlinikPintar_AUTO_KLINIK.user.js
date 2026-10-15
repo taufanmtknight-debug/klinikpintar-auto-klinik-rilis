@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Klinik Pintar - AUTO KLINIK
 // @namespace    klinikpintar-auto
-// @version      10.4.3
+// @version      10.4.4
 // @description  AUTO KLINIK untuk os.klinikpintar.id — RESUME + DIAGNOSIS + RESEP, Resume, Paket Resep Golongan. Tidak pernah menekan Simpan otomatis.
 // @author       taufanmtknight-debug
 // @match        https://os.klinikpintar.id/*
@@ -34,7 +34,7 @@
 
   // Versi diambil dari header (GM_info) agar label launcher tidak pernah beda
   // dengan @version. Nilai cadangan WAJIB sama dengan @version (dicek oleh test).
-  const SCRIPT_VERSION_FALLBACK = "10.4.3";
+  const SCRIPT_VERSION_FALLBACK = "10.4.4";
   const VERSION =
     (typeof GM_info !== "undefined" && GM_info?.script?.version) ||
     SCRIPT_VERSION_FALLBACK;
@@ -405,9 +405,10 @@
     { prefix: "BARU_CETIRIZINE_", title: "CETIRIZINE", name: "cetirizine", maxKg: 40, duration: "10", doseFreq: "1", instruction: "setelah makan", items: ["CETIRIZINE_10"] },
     { prefix: "BARU_BAPIL2_", title: "BAPIL 2", name: "batuk pilek 2", maxKg: 40, duration: "3", doseFreq: "3", instruction: "setelah makan", items: ["DEXAMETHASONE_05", "CTM_4", "AMBROXOL_30"] },
     // v10.4.0 (permintaan dokter): Acyclovir anak hanya puyer, tablet 400 mg.
-    // v10.4.3: jumlah obat untuk 3 hari dulu (permintaan dokter). Rentang tiap 1 kg; jumlah
-    // tablet = dibulatkan ke atas agar BB batas atas rentang mendapat >= mgPerKg, dan
-    // dibatasi maxMg/kali (dibulatkan ke bawah).
+    // v10.4.3: jumlah obat untuk 3 hari dulu (permintaan dokter).
+    // v10.4.4 (permintaan dokter): jumlah tablet dihitung dari BB SEBENARNYA, dibulatkan ke
+    // BAWAH ke 0,5 tablet terdekat, sehingga tidak pernah melebihi mgPerKg maupun maxMg/kali
+    // ("lebih baik kurang sedikit"). Lihat acyclovirQty / getWeightTemplate.
     // Varisela / zoster: 20 mg/kg/kali, 4x sehari, maks. 800 mg/kali -> 3 hari = buat 12.
     { prefix: "ACYCLOVIR_ANAK_", title: "ACYCLOVIR ANAK", name: "puyer acyclovir", step: 1, maxKg: 40, count: 12, mgPerKg: 20, tabletMg: 400, maxMg: 800, duration: "3", doseFreq: "4", instruction: "tiap 6 jam", items: ["ACYCLOVIR_400"] },
     // v10.4.2 (permintaan dokter: herpes simpleks anak TIDAK disamakan dengan varisela).
@@ -415,6 +416,15 @@
     // 5x sehari, maks. 200 mg/kali -> 3 hari = buat 15.
     { prefix: "ACYCLOVIR_HSV_ANAK_", title: "ACYCLOVIR HSV ANAK", name: "puyer acyclovir hsv", step: 1, maxKg: 40, count: 15, mgPerKg: 15, tabletMg: 400, maxMg: 200, duration: "3", doseFreq: "5", instruction: "tiap 4 jam (5x sehari)", items: ["ACYCLOVIR_400"] },
   ];
+
+  // Jumlah tablet untuk seluruh racikan berdasarkan mg/kg: dibulatkan ke bawah ke 0,5 tablet
+  // dan dibatasi dosis maksimal per kali. Minimal 0,5 tablet.
+  function perKgQty(s, weightKg) {
+    const half = (x) => Math.floor(x * 2 + 1e-9) / 2;
+    const want = (s.mgPerKg * weightKg * s.count) / s.tabletMg;
+    const cap = (s.maxMg * s.count) / s.tabletMg;
+    return Math.max(0.5, half(Math.min(want, cap)));
+  }
 
   const RACIKAN_TEMPLATES = {};
   for (const s of CHILD_PUYER_SERIES) {
@@ -429,14 +439,9 @@
         unit: "Pulvis",
         instruction: s.instruction,
         compoundInstruction: `buat ${s.count || 10}`,
-        ingredients: s.items.map((item) => ({
-          item,
-          quantity: String(
-            s.mgPerKg
-              ? Math.min(Math.ceil((s.mgPerKg * band.maxKg * s.count) / s.tabletMg - 1e-9), Math.floor((s.maxMg * s.count) / s.tabletMg))
-              : band.index,
-          ),
-        })),
+        // Template rentang memakai batas bawah rentang; saat dipakai dihitung ulang dari BB.
+        ingredients: s.items.map((item) => ({ item, quantity: String(s.mgPerKg ? perKgQty(s, band.minKg) : band.index) })),
+        ...(s.mgPerKg ? { dosing: s } : {}),
       };
     }
   }
@@ -3757,7 +3762,19 @@
 
   // Racikan (RACIKAN_TEMPLATES) berbasis BB.
   function getWeightTemplate(prefix, weightKg) {
-    return findWeightTemplate(RACIKAN_TEMPLATES, prefix, weightKg);
+    const found = findWeightTemplate(RACIKAN_TEMPLATES, prefix, weightKg);
+    const s = found?.tpl.dosing;
+    if (!s) return found;
+    // v10.4.4: dosis per kg dihitung dari BB sebenarnya (bukan batas rentang).
+    const qty = String(perKgQty(s, weightKg));
+    return {
+      key: found.key,
+      tpl: {
+        ...found.tpl,
+        title: `${s.title} BB ${formatKg(weightKg)} KG`,
+        ingredients: found.tpl.ingredients.map((i) => ({ ...i, quantity: qty })),
+      },
+    };
   }
 
   // Syrup non-racikan (RECIPE_TEMPLATES) berbasis BB.
