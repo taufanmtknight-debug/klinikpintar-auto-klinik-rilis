@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Klinik Pintar - AUTO KLINIK
 // @namespace    klinikpintar-auto
-// @version      10.5.0
+// @version      10.6.0
 // @description  AUTO KLINIK untuk os.klinikpintar.id — RESUME + DIAGNOSIS + RESEP, Resume, Paket Resep Golongan. Tidak pernah menekan Simpan otomatis.
 // @author       taufanmtknight-debug
 // @match        https://os.klinikpintar.id/*
@@ -34,7 +34,7 @@
 
   // Versi diambil dari header (GM_info) agar label launcher tidak pernah beda
   // dengan @version. Nilai cadangan WAJIB sama dengan @version (dicek oleh test).
-  const SCRIPT_VERSION_FALLBACK = "10.5.0";
+  const SCRIPT_VERSION_FALLBACK = "10.6.0";
   const VERSION =
     (typeof GM_info !== "undefined" && GM_info?.script?.version) ||
     SCRIPT_VERSION_FALLBACK;
@@ -5901,6 +5901,93 @@
     .ak-preview-notes{margin-top:12px!important;padding:10px 12px!important;border:1px solid #fde68a!important;border-radius:10px!important;
       background:#fffbeb!important;color:#92400e!important;font:500 12px/1.5 ${AK_FONT}!important;}
     @media (max-width:767px){.ak-live-preview-row{grid-template-columns:1fr!important;}}
+
+    /* ---------- v10.6.0: tema tegas & mudah dibaca ----------
+       Setiap bagian punya warna sendiri (garis kiri + judul berwarna):
+       Pasien biru · Diagnosis nila · Keluhan ungu · Obat oranye · Tindakan hijau toska · Preview hijau.
+       Pilihan tercentang = oranye penuh; saran = ungu; teks utama hampir hitam. */
+    #ak-medgroup-picker{background:rgba(15,23,42,.62)!important;}
+    .ak-rp-card.akm{background:#e8edf3!important;border:1px solid #cbd5e1!important;}
+    .akm-head{background:#1e293b!important;border-bottom:4px solid #f97316!important;}
+    .akm-head .ak-rp-title{color:#fff!important;font-size:20px!important;}
+    .akm-head .ak-rp-sub{color:#cbd5e1!important;}
+    .akm-head .ak-rp-x{background:#334155!important;color:#fff!important;}
+    .akm-head .ak-rp-x:hover{background:#475569!important;}
+    .akm-body{gap:14px!important;}
+    .akm .akm-sec{border:1px solid #cbd5e1!important;border-left:5px solid var(--akc,#64748b)!important;border-radius:12px!important;
+      box-shadow:0 1px 3px rgba(15,23,42,.08)!important;}
+    .akm .akm-pasien{--akc:#2563eb;}
+    .akm .akm-diagnosis{--akc:#4f46e5;}
+    .akm .akm-anamnesa{--akc:#7c3aed;}
+    .akm .akm-obat{--akc:#ea580c;}
+    .akm .akm-tindakan{--akc:#0d9488;}
+    .akm .akm-preview{border:0!important;}
+    .akm .akm-sec-title{margin:-12px -14px 12px!important;padding:10px 14px!important;border-bottom:1px solid #e2e8f0!important;
+      border-radius:0 11px 0 0!important;background:#f8fafc!important;color:var(--akc,#0f172a)!important;
+      font:800 14px/1.3 ${AK_FONT}!important;text-transform:uppercase!important;letter-spacing:.5px!important;}
+    .akm .akm-sec-title small{text-transform:none!important;letter-spacing:0!important;}
+    .akm .akm-link{color:#7c3aed!important;text-transform:none!important;letter-spacing:0!important;border:1px solid #ddd6fe!important;
+      border-radius:999px!important;padding:3px 10px!important;background:#fff!important;}
+    .akm .akm-count{background:#ea580c!important;font-size:12px!important;padding:3px 10px!important;letter-spacing:0!important;}
+    .akm .akm-stat{background:#fff!important;border:1px solid #cbd5e1!important;}
+    .akm .akm-stat > span:first-child{color:#475569!important;}
+    .akm .akm-stat b{color:#0f172a!important;font-size:18px!important;}
+    .akm .akm-bb input{font-size:18px!important;border-bottom:3px solid #2563eb!important;}
+    .akm .akm-cat.adult{background:#ea580c!important;color:#fff!important;}
+    .akm .akm-cat.child{background:#2563eb!important;color:#fff!important;}
+    .akm .akm-cat.akm-missing{background:#f59e0b!important;color:#fff!important;}
+    .akm .akm-hint{color:#475569!important;font-size:12px!important;}
+    .akm .akm-missing{color:#b45309!important;font-weight:700!important;}
+    .akm .akm-vflag.warn{background:#f59e0b!important;color:#fff!important;}
+    .akm .akm-vflag.danger{background:#dc2626!important;color:#fff!important;}
+    .akm .akm-dx-row{padding:6px 8px!important;margin-bottom:4px!important;border-radius:8px!important;background:#eef2ff!important;color:#1e1b4b!important;}
+    .akm .akm-dx-role{background:#4f46e5!important;color:#fff!important;border-color:#4f46e5!important;}
+    .akm .akm-dxp{border:1px solid #c7d2fe!important;background:#f5f7ff!important;color:#1e1b4b!important;}
+    .akm .akm-dxp-opt{border:1px solid #c7d2fe!important;}
+    .akm .akm-dxp-opt.on{border:2px solid #4f46e5!important;background:#eef2ff!important;}
+    .akm .akm-dxp-main{background:#4f46e5!important;color:#fff!important;}
+    .akm .akm-dxp-tag{background:#4f46e5!important;}
+    .akm .akm-dxp-tag.ok{background:#16a34a!important;}
+    .akm .ak-package-anamnesis{border:2px solid #c4b5fd!important;font-size:14px!important;}
+    .akm .ak-package-anamnesis:focus{border-color:#7c3aed!important;box-shadow:0 0 0 3px rgba(124,58,237,.18)!important;}
+    .akm .akm-sync{color:#15803d!important;font-weight:700!important;}
+    .akm .ak-package-suggestion-box{background:#faf5ff!important;border:1px solid #c4b5fd!important;color:#2e1065!important;}
+    .akm .ak-package-suggestion-box .ak-live-preview-title{color:#6d28d9!important;}
+    .akm .ak-package-suggestion-warn{color:#9a3412!important;font-weight:700!important;}
+    .akm .akm-group{padding-top:2px!important;}
+    .akm .akm-group-title{display:flex!important;align-items:center!important;gap:8px!important;margin:0 0 8px!important;
+      color:#334155!important;font:800 11.5px/1.2 ${AK_FONT}!important;letter-spacing:.6px!important;}
+    .akm .akm-group-title::after{content:""!important;flex:1!important;height:1px!important;background:#cbd5e1!important;}
+    .akm .ak-package-choice{border:1.5px solid #cbd5e1!important;background:#fff!important;color:#0f172a!important;}
+    .akm .ak-package-choice:hover{border-color:#94a3b8!important;background:#f8fafc!important;}
+    .akm .ak-package-choice.akm-suggested{border:1.5px dashed #8b5cf6!important;}
+    .akm .ak-package-choice.akm-on{border:2px solid #ea580c!important;background:#ffedd5!important;box-shadow:inset 4px 0 0 #ea580c!important;}
+    .akm .ak-package-choice.akm-on .akm-name{color:#7c2d12!important;font-weight:800!important;}
+    .akm .ak-package-choice input{accent-color:#ea580c!important;width:19px!important;height:19px!important;}
+    .akm .akm-name small{color:#475569!important;font-weight:600!important;}
+    .akm .ak-suggest-badge{background:#7c3aed!important;}
+    .akm .akm-tindakan .ak-package-choice.akm-on{border-color:#0d9488!important;background:#ccfbf1!important;box-shadow:inset 4px 0 0 #0d9488!important;}
+    .akm .akm-tindakan .ak-package-choice.akm-on .akm-name{color:#134e4a!important;}
+    .akm .akm-tindakan .ak-package-choice input{accent-color:#0d9488!important;}
+    .akm .ak-package-preview-meta{border:1px solid #bbf7d0!important;border-left:5px solid #16a34a!important;background:#f0fdf4!important;color:#14532d!important;}
+    .akm .ak-live-preview-box{border:1px solid #bbf7d0!important;border-left:5px solid #16a34a!important;background:#fff!important;border-radius:12px!important;}
+    .akm .ak-live-preview-title{color:#15803d!important;font-size:14px!important;text-transform:uppercase!important;letter-spacing:.4px!important;}
+    .akm .ak-live-preview-count{background:#16a34a!important;}
+    .akm .ak-rp-label{color:#15803d!important;}
+    .akm .ak-live-preview-row,.akm .ak-live-preview-racikan{border:1px solid #d1d5db!important;background:#f9fafb!important;color:#1f2937!important;}
+    .akm .ak-preview-notes{border:1px solid #fcd34d!important;border-left:5px solid #f59e0b!important;background:#fffbeb!important;color:#78350f!important;}
+    .akm-foot{border-top:2px solid #e2e8f0!important;}
+    .akm .akm-selected{color:#334155!important;font-size:12.5px!important;}
+    .akm .akm-btn-primary{background:#ea580c!important;border-color:#c2410c!important;font-size:15px!important;box-shadow:0 4px 12px rgba(234,88,12,.3)!important;}
+    .akm .akm-btn-primary:hover{background:#c2410c!important;}
+    .akm .akm-btn-ghost{border:1.5px solid #94a3b8!important;color:#334155!important;}
+    #auto-klinik-submenu.ak-open{border:1px solid #cbd5e1!important;box-shadow:0 16px 40px rgba(15,23,42,.28)!important;}
+    #auto-klinik-submenu .ak-sub-head{color:#334155!important;}
+    #auto-klinik-submenu button{border:1.5px solid #cbd5e1!important;}
+    #auto-klinik-submenu button small{color:#475569!important;}
+    #auto-klinik-submenu button.ak-primary{background:#ea580c!important;border-color:#c2410c!important;}
+    #auto-klinik-submenu button.ak-primary small{color:#fff7ed!important;}
+    .ai-notify{font-size:13px!important;font-weight:600!important;}
   `;
 
   function start() {
