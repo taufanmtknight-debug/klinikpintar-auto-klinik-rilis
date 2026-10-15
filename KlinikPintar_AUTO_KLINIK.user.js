@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Klinik Pintar - AUTO KLINIK
 // @namespace    klinikpintar-auto
-// @version      10.9.0
+// @version      10.10.0
 // @description  AUTO KLINIK untuk os.klinikpintar.id — RESUME + DIAGNOSIS + RESEP, Resume, Paket Resep Golongan, Tanya AI. Tidak pernah menekan Simpan otomatis.
 // @author       taufanmtknight-debug
 // @match        https://os.klinikpintar.id/*
@@ -39,7 +39,7 @@
 
   // Versi diambil dari header (GM_info) agar label launcher tidak pernah beda
   // dengan @version. Nilai cadangan WAJIB sama dengan @version (dicek oleh test).
-  const SCRIPT_VERSION_FALLBACK = "10.9.0";
+  const SCRIPT_VERSION_FALLBACK = "10.10.0";
   const VERSION =
     (typeof GM_info !== "undefined" && GM_info?.script?.version) ||
     SCRIPT_VERSION_FALLBACK;
@@ -6177,13 +6177,6 @@
       desc: "Pilih obat & racikan sesuai umur/BB",
       run: () => renderMedicationGroupPackagePicker(),
     },
-    {
-      id: "auto-klinik-tanya-ai",
-      icon: "🤖",
-      label: "TANYA AI",
-      desc: "Tanya jawab klinis dengan Claude",
-      run: () => renderAiPanel(),
-    },
   ];
 
   function closeMainSubmenu() {
@@ -6220,12 +6213,29 @@
           <div class="ak-sub-note">Buka pasien → Buat Rekam Medis dulu untuk RESUME dan resep.</div>
           ${MAIN_MENU.map(menuButton).join("")}
         </div>
-        <button id="auto-klinik-main" type="button">${mainButtonHtml(taskRunning ? "Berjalan" : null)}</button>
+        <div class="ak-main-row">
+          <button id="auto-klinik-ai" type="button" title="Tanya AI" aria-label="Tanya AI">🧠</button>
+          <button id="auto-klinik-main" type="button">${mainButtonHtml(taskRunning ? "Berjalan" : null)}</button>
+        </div>
       </div>`;
     mountRoot.appendChild(box);
     if (taskRunning) box.querySelector("#auto-klinik-main").disabled = true;
 
     const submenu = box.querySelector("#auto-klinik-submenu");
+    // v10.10.0: Tanya AI = tombol 🧠 di kiri tombol utama (bukan lagi di menu).
+    // Tetap bisa dipakai saat automasi lain berjalan (tidak mengubah form).
+    box.querySelector("#auto-klinik-ai")?.addEventListener("click", (ev) => {
+      ev.preventDefault();
+      ev.stopPropagation();
+      closeMainSubmenu();
+      if (document.getElementById("ak-ai-panel")) return document.getElementById("ak-ai-panel").remove();
+      try {
+        renderAiPanel();
+      } catch (e) {
+        notify(`Tanya AI: ${e?.message || e}`, "error", 12000);
+      }
+    });
+
     box.querySelector("#auto-klinik-main")?.addEventListener("click", (ev) => {
       ev.preventDefault();
       ev.stopPropagation();
@@ -6284,6 +6294,13 @@
       font-family:${AK_FONT}!important;pointer-events:none!important;}
     #auto-klinik-box .ak-menu{display:flex!important;flex-direction:column!important;align-items:flex-end!important;gap:8px!important;}
     #auto-klinik-box .ak-menu > *{pointer-events:auto!important;}
+    #auto-klinik-box .ak-main-row{display:flex!important;align-items:center!important;gap:8px!important;pointer-events:none!important;}
+    #auto-klinik-box .ak-main-row > *{pointer-events:auto!important;}
+    #auto-klinik-ai{display:inline-flex!important;align-items:center!important;justify-content:center!important;width:44px!important;height:44px!important;
+      padding:0!important;border:0!important;border-radius:999px!important;background:linear-gradient(135deg,#8b5cf6,#6d28d9)!important;
+      font:400 22px/1 ${AK_FONT}!important;cursor:pointer!important;touch-action:manipulation!important;box-sizing:border-box!important;
+      box-shadow:0 6px 18px rgba(109,40,217,.32),0 2px 6px rgba(15,23,42,.12)!important;}
+    #auto-klinik-ai:hover{filter:brightness(1.08)!important;}
     #auto-klinik-main{display:inline-flex!important;align-items:center!important;gap:8px!important;min-height:44px!important;
       padding:10px 14px 10px 16px!important;border:0!important;border-radius:999px!important;
       background:linear-gradient(135deg,#fb923c,#ea580c)!important;color:#fff!important;
