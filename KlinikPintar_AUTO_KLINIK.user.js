@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Klinik Pintar - AUTO KLINIK
 // @namespace    klinikpintar-auto
-// @version      10.12.0
+// @version      10.13.0
 // @description  AUTO KLINIK untuk os.klinikpintar.id — RESUME + DIAGNOSIS + RESEP, Resume, Paket Resep Golongan, Tanya AI. Tidak pernah menekan Simpan otomatis.
 // @author       taufanmtknight-debug
 // @match        https://os.klinikpintar.id/*
@@ -39,7 +39,7 @@
 
   // Versi diambil dari header (GM_info) agar label launcher tidak pernah beda
   // dengan @version. Nilai cadangan WAJIB sama dengan @version (dicek oleh test).
-  const SCRIPT_VERSION_FALLBACK = "10.12.0";
+  const SCRIPT_VERSION_FALLBACK = "10.13.0";
   const VERSION =
     (typeof GM_info !== "undefined" && GM_info?.script?.version) ||
     SCRIPT_VERSION_FALLBACK;
@@ -5886,10 +5886,22 @@
 
   // v10.11.0: posisi & ukuran panel (digeser lewat judul, diubah lewat sudut kiri bawah)
   // disimpan di Violentmonkey supaya panel muncul di tempat terakhir.
-  const AI_BOX_STORE = "ak_ai_box2"; // v10.12.0: kunci baru agar lebar baru langsung dipakai
+  // v10.13.0: lebar 12% lebih kecil. Posisi/ukuran yang tersimpan (kunci lama)
+  // tetap dipakai, lebarnya ikut dikecilkan 12% sekali.
+  const AI_BOX_STORE = "ak_ai_box3";
   function aiLoadBox() {
     try {
-      if (aiStorageOk()) return JSON.parse(GM_getValue(AI_BOX_STORE, "null"));
+      if (aiStorageOk()) {
+        const box = JSON.parse(GM_getValue(AI_BOX_STORE, "null"));
+        if (box) return box;
+        const old = JSON.parse(GM_getValue("ak_ai_box2", "null"));
+        if (old?.width) {
+          const migrated = { ...old, width: Math.round(old.width * 0.88) };
+          GM_setValue(AI_BOX_STORE, JSON.stringify(migrated));
+          return migrated;
+        }
+        return null;
+      }
     } catch (_) {}
     return aiChat.box || null;
   }
@@ -6743,9 +6755,9 @@
     .ai-notify{font-size:13px!important;font-weight:600!important;}
 
     /* ---------- Tanya AI (panel mengambang; bisa digeser, diubah ukuran, diperkecil) ---------- */
-    /* v10.11.0: ukuran 60% dari v10.9; v10.12.0: lebar +30% (±360 px / 78% layar HP), tinggi 30% layar. */
+    /* v10.11.0: ukuran 60% dari v10.9; v10.12.0: lebar +30%; v10.13.0: lebar −12% (±317 px / 69% layar HP), tinggi 30% layar. */
     #ak-ai-panel{position:fixed!important;top:8px!important;right:8px!important;bottom:auto!important;left:auto!important;z-index:2147483645!important;
-      width:min(360px,78vw)!important;height:30vh!important;min-width:200px!important;min-height:220px!important;
+      width:min(317px,69vw)!important;height:30vh!important;min-width:200px!important;min-height:220px!important;
       display:flex!important;flex-direction:column!important;overflow:hidden!important;background:#f8fafc!important;
       border:1px solid #94a3b8!important;border-radius:12px!important;box-shadow:0 12px 32px rgba(15,23,42,.28)!important;box-sizing:border-box!important;
       font:500 12.5px/1.45 ${AK_FONT}!important;color:#0f172a!important;}
