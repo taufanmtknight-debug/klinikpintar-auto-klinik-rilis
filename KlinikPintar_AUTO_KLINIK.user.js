@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Klinik Pintar - AUTO KLINIK
 // @namespace    klinikpintar-auto
-// @version      10.4.5
+// @version      10.5.0
 // @description  AUTO KLINIK untuk os.klinikpintar.id — RESUME + DIAGNOSIS + RESEP, Resume, Paket Resep Golongan. Tidak pernah menekan Simpan otomatis.
 // @author       taufanmtknight-debug
 // @match        https://os.klinikpintar.id/*
@@ -34,7 +34,7 @@
 
   // Versi diambil dari header (GM_info) agar label launcher tidak pernah beda
   // dengan @version. Nilai cadangan WAJIB sama dengan @version (dicek oleh test).
-  const SCRIPT_VERSION_FALLBACK = "10.4.5";
+  const SCRIPT_VERSION_FALLBACK = "10.5.0";
   const VERSION =
     (typeof GM_info !== "undefined" && GM_info?.script?.version) ||
     SCRIPT_VERSION_FALLBACK;
@@ -62,6 +62,9 @@
   // ============================================================
 
   // MASTER ITEM DATABASE - NAMA TARGET KLINIK PINTAR
+  // v10.5.0: ped = dosis anak MAKSIMAL menurut literatur (mg/kg per kali & per hari;
+  // mg = kekuatan tablet, mgPerMl = sirup). Puyer & sirup anak berbasis BB tidak
+  // pernah melebihinya (lihat capPediatricQty).
   // Keyword sengaja sama dengan nama target agar pencarian spesifik.
   // Semua resep/racikan WAJIB merujuk ke key di sini (diaudit otomatis).
   const ITEMS = {
@@ -84,7 +87,7 @@
     POT_PLASTIK: { keyword: "BPJS -- POT PLASTIK 30 CC", target: "BPJS -- POT PLASTIK 30 CC", unit: "pcs" },
     CETIRIZINE_10: { keyword: "BPJS -- CETIRIZINE HCL 10 MG", target: "BPJS -- CETIRIZINE HCL 10 MG", unit: "tablet" },
     ANTASIDA_TABLET: { keyword: "BPJS -- ANTASIDA DOEN TABLET", target: "BPJS -- ANTASIDA DOEN TABLET", unit: "tablet" },
-    PARACETAMOL_500: { keyword: "BPJS -- PARACETAMOL 500 MG", target: "BPJS -- PARACETAMOL 500 MG", unit: "tablet" },
+    PARACETAMOL_500: { keyword: "BPJS -- PARACETAMOL 500 MG", target: "BPJS -- PARACETAMOL 500 MG", unit: "tablet", ped: { mg: 500, perDose: 15, perDay: 60 } },
     DICLOFENAC_50: { keyword: "BPJS -- NATRIUM DICLOFENAC 50 MG", target: "BPJS -- NATRIUM DICLOFENAC 50 MG", unit: "tablet" },
     DEXAMETHASONE_05: { keyword: "BPJS -- DEXAMETHASONE 0,5 MG", target: "BPJS -- DEXAMETHASONE 0,5 MG", unit: "tablet" },
     CALCIUM_500: { keyword: "BPJS -- CALCIUM 500 MG", target: "BPJS -- CALCIUM 500 MG", unit: "tablet" },
@@ -109,34 +112,38 @@
     SPUIT_5CC: { keyword: "BPJS -- SPUIT 5 CC", target: "BPJS -- SPUIT 5 CC", unit: "pcs" },
     HANDSCOON_S: { keyword: "BPJS -- HANDSCOON S", target: "BPJS -- HANDSCOON S", unit: "pcs" },
     VITAMIN_B_COMPLEX: { keyword: "BPJS -- VITAMIN B COMPLEX", target: "BPJS -- VITAMIN B COMPLEX", unit: "tablet" },
-    GUAIFENESIN_100: { keyword: "BPJS -- GUAIFENESIN 100 MG", target: "BPJS -- GUAIFENESIN 100 MG", unit: "kaplet" },
-    CTM_4: { keyword: "BPJS -- CTM 4 MG", target: "BPJS -- CTM 4 MG", unit: "tablet" },
+    GUAIFENESIN_100: { keyword: "BPJS -- GUAIFENESIN 100 MG", target: "BPJS -- GUAIFENESIN 100 MG", unit: "kaplet", ped: { mg: 100, perDay: 12 } },
+    CTM_4: { keyword: "BPJS -- CTM 4 MG", target: "BPJS -- CTM 4 MG", unit: "tablet", ped: { mg: 4, perDay: 0.35 } },
     ALPARA: { keyword: "BPJS -- ALPARA", target: "BPJS -- ALPARA", unit: "tablet" },
-    AMOXICILLIN_500: { keyword: "BPJS -- AMOXICILLIN 500 MG", target: "BPJS -- AMOXICILLIN 500 MG", unit: "tablet" },
-    DOMPERIDONE_10: { keyword: "BPJS -- DOMPERIDONE 10 MG", target: "BPJS -- DOMPERIDONE 10 MG", unit: "tablet" },
+    AMOXICILLIN_500: { keyword: "BPJS -- AMOXICILLIN 500 MG", target: "BPJS -- AMOXICILLIN 500 MG", unit: "tablet", ped: { mg: 500, perDay: 50 } },
+    DOMPERIDONE_10: { keyword: "BPJS -- DOMPERIDONE 10 MG", target: "BPJS -- DOMPERIDONE 10 MG", unit: "tablet", ped: { mg: 10, perDose: 0.25, perDay: 0.75 } },
     DOMPERIDONE_SYRUP: {
       keyword: "BPJS -- DOMPERIDONE 5 MG/5ML SYRUP",
       target: "BPJS -- DOMPERIDONE 5 MG/5ML SYRUP",
       unit: "bottle",
+      ped: { mgPerMl: 1, perDose: 0.25, perDay: 0.75 },
     },
     AMOXICILLIN_SYRUP: {
       keyword: "BPJS -- AMOXICILLIN TRIHYDRATE 125 MG/5ML SYRUP",
       target: "BPJS -- AMOXICILLIN TRIHYDRATE 125 MG/5ML SYRUP",
       unit: "bottle",
+      ped: { mgPerMl: 25, perDay: 50 },
     },
     CEFADROXIL_500: {
       keyword: "BPJS -- CEFADROXIL MONOHYDRATE 500 MG",
       target: "BPJS -- CEFADROXIL MONOHYDRATE 500 MG",
       unit: "kapsul",
+      ped: { mg: 500, perDay: 30 },
     },
     CEFADROXIL_SYRUP: {
       keyword: "BPJS -- CEFADROXIL 125 MG/5 ML SYR",
       target: "BPJS -- CEFADROXIL 125 MG/5 ML SYR",
       unit: "bottle",
+      ped: { mgPerMl: 25, perDay: 30 },
     },
     RANITIDINE_HCL: { keyword: "BPJS -- RANITIDINE HCL", target: "BPJS -- RANITIDINE HCL", unit: "tablet" },
-    AMBROXOL_30: { keyword: "BPJS -- AMBROXOL 30 MG", target: "BPJS -- AMBROXOL 30 MG", unit: "tablet" },
-    IBUPROFEN_400: { keyword: "BPJS -- IBUPROFEN 400 MG", target: "BPJS -- IBUPROFEN 400 MG", unit: "tablet" },
+    AMBROXOL_30: { keyword: "BPJS -- AMBROXOL 30 MG", target: "BPJS -- AMBROXOL 30 MG", unit: "tablet", ped: { mg: 30, perDay: 1.6 } },
+    IBUPROFEN_400: { keyword: "BPJS -- IBUPROFEN 400 MG", target: "BPJS -- IBUPROFEN 400 MG", unit: "tablet", ped: { mg: 400, perDose: 10, perDay: 40 } },
 
     // v10: obat standar FKTP, nama persis sudah dicocokkan dengan daftar "Cari Obat"
     // Klinik Pintar. Obat baru yang belum dicocokkan diberi verify: true (test
@@ -426,6 +433,27 @@
     return Math.floor(Math.min(want, cap) + 1e-9);
   }
 
+  // v10.5.0 (aturan dokter: dosis anak tidak pernah melebihi literatur, lebih baik
+  // kurang sedikit). Jumlah UTUH maksimal untuk BB sebenarnya: tablet untuk seluruh
+  // racikan (`count` bungkus) atau ml per kali untuk sirup. Infinity = tanpa batas data.
+  function pediatricMaxUnits(itemKey, weightKg, freq, count = 1) {
+    const ped = ITEMS[itemKey]?.ped;
+    if (!ped || !Number.isFinite(weightKg)) return Infinity;
+    const perDose = Math.min(ped.perDose ?? Infinity, (ped.perDay ?? Infinity) / (Number(freq) || 1));
+    if (!Number.isFinite(perDose)) return Infinity;
+    const unitMg = ped.mg ?? ped.mgPerMl;
+    return Math.floor((weightKg * perDose * count) / unitMg + 1e-9);
+  }
+
+  const fmtNum = (n) => String(Math.round(n * 100) / 100).replace(".", ",");
+  function pedLimitText(itemKey, freq) {
+    const ped = ITEMS[itemKey]?.ped || {};
+    const perDose = Math.min(ped.perDose ?? Infinity, (ped.perDay ?? Infinity) / (Number(freq) || 1));
+    return ped.perDay != null && (ped.perDose == null || ped.perDay / (Number(freq) || 1) <= ped.perDose)
+      ? `${fmtNum(ped.perDay)} mg/kg/hari`
+      : `${fmtNum(perDose)} mg/kg/kali`;
+  }
+
   const RACIKAN_TEMPLATES = {};
   for (const s of CHILD_PUYER_SERIES) {
     for (const band of weightBands(s.step || 5, s.maxKg)) {
@@ -439,6 +467,7 @@
         unit: "Pulvis",
         instruction: s.instruction,
         compoundInstruction: `buat ${s.count || 10}`,
+        count: s.count || 10,
         // Template rentang memakai batas bawah rentang; saat dipakai dihitung ulang dari BB.
         ingredients: s.items.map((item) => ({ item, quantity: String(s.mgPerKg ? Math.max(1, perKgQty(s, band.minKg)) : band.index) })),
         ...(s.mgPerKg ? { dosing: s } : {}),
@@ -1206,7 +1235,8 @@
     {
       label: "Gatal / alergi",
       // v10.3.0: "alergi amoxicillin" = riwayat alergi obat, bukan keluhan gatal.
-      pattern: /gatal|alergi(?!\s+(?:obat|terhadap|antibiotik|amox|amoksi|peni|ampi|cefa|sefa|paracetamol|parasetamol|pct|ibuprofen|asam\s+mefenamat|mefenamat|diclo|diklo|cipro|metro|sulfa|ctm|nsaid|acy|asik))|biduran|kaligata|urtikaria|bentol|\bbidur|digigit\s+serangga/,
+      // v10.5.0: gatal kemaluan/keputihan/anus bukan alergi; "alergi: amoxicillin" = riwayat alergi obat.
+      pattern: /(?<!(?:keputihan|kemaluan|vagina|anus|dubur)\s+)gatal(?!\s+(?:di\s+)?(?:kemaluan|vagina|anus|dubur))|alergi(?!\s*:?\s*(?:obat|terhadap|antibiotik|amox|amoksi|peni|ampi|cefa|sefa|paracetamol|parasetamol|pct|ibuprofen|asam\s+mefenamat|mefenamat|diclo|diklo|cipro|metro|sulfa|ctm|nsaid|acy|asik))|biduran|kaligata|urtikaria|bentol|\bbidur|digigit\s+serangga/,
       adult: ["CETIRIZINE_10_DEWASA"],
       child: ["CETIRIZINE_RACIKAN_BARU"],
     },
@@ -1220,7 +1250,8 @@
     },
     {
       label: "Cacar / campak (simptomatik)",
-      pattern: /cacar|varisela|campak|morbili/,
+      // v10.5.0: "imunisasi campak" = tindakan, bukan penyakit campak.
+      pattern: /cacar|varisela|(?<!(?:imunisasi|vaksin\w*|suntik)\s+)campak(?!\s+rubel)|morbili/,
       adult: ["PARACETAMOL_DEWASA", "CETIRIZINE_10_DEWASA"],
       child: ["PARACETAMOL_ANAK", "CETIRIZINE_RACIKAN_BARU"],
     },
@@ -1245,7 +1276,8 @@
     },
     {
       label: "Hipertensi",
-      pattern: /hipertensi|darah\s+tinggi|tensi\s+tinggi|\bht\b|\bhtn\b/,
+      // v10.5.0: "gula darah tinggi" bukan hipertensi.
+      pattern: /hipertensi|(?<!gula\s)darah\s+tinggi|tensi\s+tinggi|\bht\b|\bhtn\b/,
       adult: ["AMLODIPINE_5"],
       child: [],
     },
@@ -1614,7 +1646,7 @@
     { key: "SINKOP", tier: 1, pattern: /pingsan|sinkop|syncope|tidak\s+sadarkan\s+diri/ },
     { key: "APENDISITIS", tier: 1, pattern: /usus\s+buntu|apendi\w*|appendi\w*|(?:nyeri|sakit)\s+perut\s+(?:bagian\s+)?kanan\s+bawah|perut\s+kanan\s+bawah\s+(?:terasa\s+)?(?:nyeri|sakit)/ },
     { key: "DBD", tier: 1, pattern: /\bdbd\b|\bdhf\b|demam\s+berdarah|dengue|pete?ki\w*|petechi\w*|trombosit\s+(?:turun|rendah)|demam[^.\n]{0,40}?(?:bintik[\s-]+(?:bintik\s+)?merah|mimisan|gusi\s+berdarah)/ },
-    { key: "TIFOID", tier: 1, pattern: /tifus|tipes|tipus|tifoid|typhoid|thypoid|paratifoid|lidah\s+kotor|demam[^.,;\n]{0,20}?(?:[7-9]|1\d)\s*hari|demam\s+(?:sudah\s+)?(?:seminggu|1\s+minggu)/ },
+    { key: "TIFOID", tier: 1, pattern: /tifus|tipes|tipus|tifoid|typhoid|thypoid|paratifoid|lidah\s+kotor|demam[^.,;\n]{0,20}?(?<!\d)(?:[7-9]|1\d)\s*hari|demam\s+(?:sudah\s+|sejak\s+|selama\s+)?(?:seminggu|1\s+minggu)/ },
     { key: "CHIKUNGUNYA", tier: 1, pattern: /chikun\w*|cikun\w*|flu\s+tulang/ },
     { key: "VARICELLA", tier: 1, pattern: /cacar\s+air|varisela|varicella|\bcacar\b(?!\s+(?:ular|api|monyet))/ },
     { key: "ZOSTER", tier: 1, pattern: /herpes\s+zoster|\bzoster\b|cacar\s+(?:ular|api)|dompo/ },
@@ -1677,7 +1709,7 @@
     { key: "OA_GENU", tier: 1, pattern: /(?:nyeri|sakit|ngilu)\s+(?:di\s+)?(?:lutut|dengkul)|(?:lutut|dengkul)\s+(?:nyeri|sakit|kaku|bengkak|ngilu|bunyi)|osteoart\w*|pengapuran/ },
     { key: "LBP", tier: 1, pattern: /(?:nyeri|sakit|pegal)\s+(?:di\s+)?(?:pinggang|punggung|boyok)|(?:pinggang|punggung|boyok)\s+(?:sakit|nyeri|pegal|kaku)|low back pain|\blbp\b|encok/ },
     { key: "BELLS_PALSY", tier: 1, pattern: /bell'?s?\s*palsy|(?:wajah|muka|mulut|bibir)\s+(?:\w+\s+)?(?:mencong|miring|perot|merot)|\bmencong\b/ },
-    { key: "HT", tier: 2, pattern: /hipertensi|darah\s+tinggi|tensi\s+(?:tinggi|naik)|tekanan\s+darah\s+tinggi|kontrol\s+tensi|\bht\b|\bhtn\b/ },
+    { key: "HT", tier: 2, pattern: /hipertensi|(?<!gula\s)darah\s+tinggi|tensi\s+(?:tinggi|naik)|tekanan\s+darah\s+tinggi|kontrol\s+tensi|\bht\b|\bhtn\b/ },
     { key: "HIPOTENSI", tier: 2, pattern: /darah\s+rendah|tensi\s+(?:rendah|turun)|hipotensi/ },
     { key: "HIPERURISEMIA", tier: 2, pattern: /asam\s+urat\s+(?:tinggi|naik)|kontrol\s+asam\s+urat|hiperurisemi\w*/ },
     { key: "DISLIPIDEMIA", tier: 2, pattern: /kolesterol\s+(?:tinggi|naik)|kontrol\s+kolesterol|dislipid\w*|hiperlipid\w*/ },
@@ -1690,7 +1722,8 @@
     { key: "TENSION_HEADACHE", tier: 3, pattern: /tengkuk\s+(?:\w+\s+)?(?:kaku|tegang|berat|sakit|nyeri|pegal)|kepala\s+(?:terasa\s+)?(?:berat|tegang|seperti\s+diikat)|tension\s+(?:type\s+)?headache/ },
     { key: "CEPHALGIA", tier: 3, pattern: /(?:sakit|nyeri)\s+kepala|pusing|cekot|nyut[\s-]?nyut\w*|cenat[\s-]?cenut|ce[fp]h?algia/ },
     // v10: mual/muntah saja = keluhan penyerta; kalah dari pusing, diare, dll.
-    { key: "DISPEPSIA", tier: 3, pattern: /mual|muntah/ },
+    // v10.5.0: juga kalah dari demam ("demam, muntah" pada anak = Fever, bukan Dispepsia).
+    { key: "DISPEPSIA", tier: 4.5, pattern: /mual|muntah/ },
     { key: "ASMA", tier: 3, pattern: /\bsesak\b/ },
     { key: "MYALGIA", tier: 3, pattern: /pegal|pegel|linu|kemeng|(?:nyeri|sakit)\s+(?:otot|badan)|badan\s+(?:sakit|remuk|pegal)|m[iy]algia/ },
     { key: "NEUROPATI", tier: 3, pattern: /kesemutan|\bkebas\b|\bbaal\b|mati\s+rasa|neuropati\w*/ },
@@ -1784,7 +1817,8 @@
     { label: "CTM/antihistamin", pattern: /\bctm\b|chlorphen\w*|klorfeni\w*|cetirizin\w*|loratadin\w*/,
       drop: ["CTM_4_DEWASA", "CETIRIZINE_10_DEWASA", "LORATADINE_10_DEWASA", "CETIRIZINE_RACIKAN_BARU", "ALPARA_DEWASA", "ISPA_ANAK", "BAPIL_2_ANAK"] },
   ];
-  const ALLERGY_CONTEXT = /alergi\s+(?:obat\s+|terhadap\s+|dengan\s+)?(?:[a-z]+\s*,\s*|[a-z]+\s+(?:dan|&)\s+)*/g;
+  // v10.5.0: juga "alergi: amoxicillin" / "alergi obat: ...".
+  const ALLERGY_CONTEXT = /alergi\s*(?::\s*)?(?:obat\s*:?\s*|terhadap\s+|dengan\s+)?(?:[a-z]+\s*,\s*|[a-z]+\s+(?:dan|&)\s+)*/g;
 
   // v10.3.0: catatan keamanan dari keluhan (tidak mengubah centang).
   const ANAMNESIS_NOTE_RULES = [
@@ -2115,9 +2149,10 @@
   }
 
   // Teks semua pilihan, juga saat daftar tertutup (untuk mengenali jenis kolom).
+  // v10.5.0: tanpa tooltip tersembunyi (optionText), agar "Setelah Makan" tetap dikenali.
   function msOptionTexts(root) {
     const box = msBox(root);
-    return box ? [...box.querySelectorAll("li")].map((li) => norm(li.textContent)) : [];
+    return box ? [...box.querySelectorAll("li")].map((li) => norm(optionText(li))) : [];
   }
 
   // Label terpilih, atau placeholder bila belum ada yang dipilih.
@@ -2458,9 +2493,14 @@
     // Nama diagnosis buatan script di kolom Diagnosa ditulis ulang sesuai urutan pilihan.
     const diag = textFieldByIdOrLabel("tf_diagnosis", "Diagnosa", ["Masukkan diagnosa"]);
     if (diag && auto.names.length) {
+      // v10.5.0: nama buatan script hanya dihapus bila berdiri sendiri di antara koma;
+      // teks dokter yang kebetulan memuat nama itu tidak terpotong.
       let t = String(diag.value || "");
-      for (const n of auto.names) t = t.split(n).join("");
-      t = t.replace(/\s*,\s*(?=,|$)/g, "").replace(/^\s*,\s*/, "").replace(/,\s*,/g, ",").trim();
+      for (const n of auto.names) {
+        const esc = n.trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+        t = t.replace(new RegExp(`(^|,)\\s*${esc}\\s*(?=,|$)`, "i"), "$1");
+      }
+      t = t.split(",").map((x) => x.trim()).filter(Boolean).join(", ");
       nativeSetValue(diag, t);
     }
     auto.names = [];
@@ -3766,8 +3806,23 @@
   // Racikan (RACIKAN_TEMPLATES) berbasis BB.
   function getWeightTemplate(prefix, weightKg) {
     const found = findWeightTemplate(RACIKAN_TEMPLATES, prefix, weightKg);
-    const s = found?.tpl.dosing;
-    if (!s) return found;
+    if (!found) return null;
+    const s = found.tpl.dosing;
+    if (!s) {
+      // v10.5.0: jumlah tablet rentang BB dibatasi dosis maksimal literatur (lihat ITEMS.ped).
+      const doseNotes = [];
+      const ingredients = found.tpl.ingredients.map((i) => {
+        const band = Number(i.quantity);
+        const max = pediatricMaxUnits(i.item, weightKg, found.tpl.doseFreq, found.tpl.count);
+        if (max >= band) return i;
+        doseNotes.push(
+          `${ITEMS[i.item].target.replace(/^BPJS -- /, "")}: ${max} tablet (bukan ${band}) agar ≤${pedLimitText(i.item, found.tpl.doseFreq)} untuk BB ${formatKg(weightKg)} kg`,
+        );
+        return { ...i, quantity: String(max) };
+      });
+      if (ingredients.some((i) => Number(i.quantity) < 1)) return null; // BB terlalu kecil
+      return doseNotes.length ? { key: found.key, tpl: { ...found.tpl, ingredients, doseNotes } } : found;
+    }
     // v10.4.4: dosis per kg dihitung dari BB sebenarnya (bukan batas rentang).
     const n = perKgQty(s, weightKg);
     if (n < 1) return null; // 1 tablet pun melebihi dosis: dokter menentukan sendiri.
@@ -3784,7 +3839,26 @@
 
   // Syrup non-racikan (RECIPE_TEMPLATES) berbasis BB.
   function getWeightRecipeTemplate(prefix, weightKg) {
-    return findWeightTemplate(RECIPE_TEMPLATES, prefix, weightKg);
+    const found = findWeightTemplate(RECIPE_TEMPLATES, prefix, weightKg);
+    if (!found) return null;
+    // v10.5.0: ml per kali dibatasi dosis maksimal literatur (lihat ITEMS.ped).
+    const doseNotes = [];
+    const medicines = found.tpl.medicines.map((m) => {
+      const band = Number(m.dose);
+      const max = pediatricMaxUnits(m.item, weightKg, m.freq);
+      if (max >= band) return m;
+      doseNotes.push(
+        `${ITEMS[m.item].target.replace(/^BPJS -- /, "")}: ${max} ml (bukan ${band} ml) agar ≤${pedLimitText(m.item, m.freq)} untuk BB ${formatKg(weightKg)} kg`,
+      );
+      return { ...m, dose: String(max) };
+    });
+    if (medicines.some((m) => Number(m.dose) < 1)) return null;
+    return doseNotes.length ? { key: found.key, tpl: { ...found.tpl, medicines, doseNotes } } : found;
+  }
+
+  // BB ada di rentang template tetapi dosis terkecil (1 tablet / 1 ml) sudah melebihi literatur.
+  function weightTooSmallForTemplate(templates, prefix, weightKg) {
+    return !!findWeightTemplate(templates, prefix, weightKg);
   }
 
   function getTemplateMedicineList(templateKey) {
@@ -4036,7 +4110,8 @@
     }
     // v10.3.0: riwayat alergi obat.
     for (const ctx of lower.matchAll(ALLERGY_CONTEXT)) {
-      const tail = lower.slice(ctx.index, ctx.index + ctx[0].length + 30);
+      // v10.5.0: hanya sampai akhir frasa ("alergi debu, batuk ... minum amoxicillin" bukan alergi amoxicillin).
+      const tail = ctx[0] + lower.slice(ctx.index + ctx[0].length).split(/[.,;\n]/)[0].slice(0, 30);
       if (isKeywordNegated(lower, ctx.index, ctx.index + ctx[0].length + (tail.slice(ctx[0].length).match(/^[a-z]+/)?.[0].length || 0)))
         continue;
       for (const a of DRUG_ALLERGY_RULES) {
@@ -4335,6 +4410,13 @@
     return !!item && (item.population === group || item.population === "all");
   }
 
+  function weightOutsideNote(item, weightKg, templates, smallest) {
+    const kg = formatKg(weightKg);
+    return weightTooSmallForTemplate(templates, item.prefix, weightKg)
+      ? `${item.label}: BB ${kg} kg terlalu kecil (${smallest} pun melebihi dosis maksimal), tidak diinput otomatis; tentukan dosis manual`
+      : `${item.label}: BB ${kg} kg di luar template`;
+  }
+
   function resolveMedicationItem(item, weightKg, ageYears) {
     if (!item)
       return {
@@ -4367,21 +4449,21 @@
       case "weight-racikan": {
         const found = getWeightTemplate(item.prefix, weightKg);
         return found
-          ? { medicines: [], racikans: [{ tpl: found.tpl }] }
+          ? { medicines: [], racikans: [{ tpl: found.tpl }], doseNotes: found.tpl.doseNotes || [] }
           : {
               medicines: [],
               racikans: [],
-              note: `${item.label}: BB ${weightKg} kg di luar template`,
+              note: weightOutsideNote(item, weightKg, RACIKAN_TEMPLATES, "1 tablet"),
             };
       }
       case "weight-syrup": {
         const found = getWeightRecipeTemplate(item.prefix, weightKg);
         return found
-          ? { medicines: [...(found.tpl.medicines || [])], racikans: [] }
+          ? { medicines: [...(found.tpl.medicines || [])], racikans: [], doseNotes: found.tpl.doseNotes || [] }
           : {
               medicines: [],
               racikans: [],
-              note: `${item.label}: BB ${weightKg} kg di luar template`,
+              note: weightOutsideNote(item, weightKg, RECIPE_TEMPLATES, "1 ml"),
             };
       }
       case "age-antacid": {
@@ -4466,6 +4548,7 @@
         preview.notes.push(r.note);
         continue;
       }
+      for (const n of r.doseNotes || []) preview.notes.push(`Dosis dikurangi: ${n}`);
       const meds = [];
       for (const m of r.medicines || []) {
         const id = identity(m, item.label);
@@ -4977,8 +5060,14 @@
       if (reset) dismissed.clear();
       const s = suggestMedicationsFromAnamnesis(anamnesisEl.value, group, { diagnoses: presetDiagnoses, vitals: vitalsAssessment });
       suggestedKeys = new Set(s.keys);
+      // v10.5.0: obat berbasis umur yang tidak punya dosis untuk umur ini (mis. Antasida
+      // anak <4 tahun) tetap ditandai saran, tetapi tidak dicentang.
+      const noDoseForAge = (k) => {
+        const it = MEDICATION_ITEMS_FLAT.find((x) => x.key === k);
+        return !!it && /^age-/.test(it.type) && !!resolveMedicationItem(it, null, ageYears).note;
+      };
       for (const k of s.keys) {
-        if (dismissed.has(k) || selectedMedicationKeys.has(k)) continue;
+        if (dismissed.has(k) || selectedMedicationKeys.has(k) || noDoseForAge(k)) continue;
         selectedMedicationKeys.add(k);
         autoAdded.add(k);
       }
@@ -5119,13 +5208,20 @@
     const syncComplaintText = () => {
       const t = String(anamnesisEl.value || "").trim();
       if (!t || t === syncedText || !isMedicalRecordCreatePage() || !samePage()) return;
-      for (const [id, label] of [["tf_complaint", "Keluhan Utama"], ["tf_anamese", "Anamnesa"]]) {
-        const el = textFieldByIdOrLabel(id, label, [label]);
-        if (el) nativeSetValue(el, t);
-      }
+      const chief = textFieldByIdOrLabel("tf_complaint", "Keluhan Utama", ["Keluhan Utama"]);
+      const anam = textFieldByIdOrLabel("tf_anamese", "Anamnesa", ["Anamnesa"]);
+      // v10.5.0: Anamnesa yang ditulis dokter sendiri (beda dari Keluhan Utama sebelumnya)
+      // tidak ditimpa; hanya Anamnesa kosong / salinan Keluhan Utama yang ikut diubah.
+      const anamValue = String(anam?.value || "").trim();
+      const anamFollows = !!anam && (!anamValue || anamValue === String(chief?.value || "").trim() || anamValue === syncedText);
+      if (chief) nativeSetValue(chief, t);
+      if (anamFollows) nativeSetValue(anam, t);
       syncedText = t;
       setAnamnesisSource("Keluhan Utama");
-      if (syncStatusEl) syncStatusEl.textContent = "✓ Keluhan Utama & Anamnesa di halaman diperbarui.";
+      if (syncStatusEl)
+        syncStatusEl.textContent = anamFollows
+          ? "✓ Keluhan Utama & Anamnesa di halaman diperbarui."
+          : "✓ Keluhan Utama di halaman diperbarui (Anamnesa yang ditulis dokter tidak diubah).";
     };
     let dxSyncAgain = false;
     let dxSyncTimer = null;
