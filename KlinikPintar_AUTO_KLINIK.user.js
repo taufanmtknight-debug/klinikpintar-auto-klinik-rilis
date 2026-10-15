@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Klinik Pintar - AUTO KLINIK
 // @namespace    klinikpintar-auto
-// @version      10.10.0
+// @version      10.11.0
 // @description  AUTO KLINIK untuk os.klinikpintar.id — RESUME + DIAGNOSIS + RESEP, Resume, Paket Resep Golongan, Tanya AI. Tidak pernah menekan Simpan otomatis.
 // @author       taufanmtknight-debug
 // @match        https://os.klinikpintar.id/*
@@ -39,7 +39,7 @@
 
   // Versi diambil dari header (GM_info) agar label launcher tidak pernah beda
   // dengan @version. Nilai cadangan WAJIB sama dengan @version (dicek oleh test).
-  const SCRIPT_VERSION_FALLBACK = "10.10.0";
+  const SCRIPT_VERSION_FALLBACK = "10.11.0";
   const VERSION =
     (typeof GM_info !== "undefined" && GM_info?.script?.version) ||
     SCRIPT_VERSION_FALLBACK;
@@ -5801,7 +5801,7 @@
   }
 
   // Percakapan disimpan di memori saja (hilang saat halaman dimuat ulang).
-  const aiChat = { messages: [], view: [], pageKey: "", busy: false, images: [], model: "", convModel: "" };
+  const aiChat = { messages: [], view: [], pageKey: "", busy: false, images: [], model: "", convModel: "", min: false, box: null };
 
   const AI_QUICK_PROMPTS = [
     ["Diagnosis banding", "Apa diagnosis banding untuk pasien ini, dan pemeriksaan apa yang membedakannya?"],
@@ -5809,6 +5809,75 @@
     ["Kapan rujuk", "Apa tanda bahaya dan kriteria rujukan untuk kasus ini?"],
     ["Edukasi pasien", "Buatkan edukasi singkat untuk pasien dalam bahasa awam."],
   ];
+
+  // v10.11.0: posisi & ukuran panel (digeser lewat judul, diubah lewat sudut kiri bawah)
+  // disimpan di Violentmonkey supaya panel muncul di tempat terakhir.
+  const AI_BOX_STORE = "ak_ai_box";
+  function aiLoadBox() {
+    try {
+      if (aiStorageOk()) return JSON.parse(GM_getValue(AI_BOX_STORE, "null"));
+    } catch (_) {}
+    return aiChat.box || null;
+  }
+  function aiSaveBox(box) {
+    aiChat.box = box;
+    try {
+      if (aiStorageOk()) GM_setValue(AI_BOX_STORE, JSON.stringify(box));
+    } catch (_) {}
+  }
+  // Kotak dijaga tetap di dalam layar (pure, diuji).
+  function clampAiBox(box, vw, vh) {
+    const width = Math.round(Math.min(Math.max(box.width, 200), vw - 8));
+    const height = Math.round(Math.min(Math.max(box.height, 220), vh - 8));
+    const left = Math.round(Math.min(Math.max(box.left, 0), Math.max(0, vw - width)));
+    const top = Math.round(Math.min(Math.max(box.top, 0), Math.max(0, vh - 40)));
+    return { left, top, width, height };
+  }
+  function aiApplyBox(panel) {
+    const set = (k, v) => panel.style.setProperty(k, v, "important");
+    const box = aiChat.box || aiLoadBox();
+    if (box) {
+      const b = clampAiBox(box, window.innerWidth, window.innerHeight);
+      set("left", `${b.left}px`);
+      set("top", `${b.top}px`);
+      set("right", "auto");
+      set("width", `${b.width}px`);
+      if (!aiChat.min) set("height", `${b.height}px`);
+    }
+    panel.classList.toggle("ak-ai-min", !!aiChat.min);
+    if (aiChat.min) panel.style.removeProperty("height");
+    const btn = panel.querySelector('[data-act="min"]');
+    if (btn) btn.textContent = aiChat.min ? "▢" : "–";
+  }
+  function aiEnableDrag(panel, head, grip) {
+    const start = (ev, mode) => {
+      if (mode === "move" && ev.target.closest("button")) return;
+      ev.preventDefault();
+      const r = panel.getBoundingClientRect();
+      const s = { x: ev.clientX, y: ev.clientY, left: r.left, top: r.top, width: r.width, height: aiChat.min ? (aiChat.box?.height ?? r.height) : r.height };
+      const move = (e) => {
+        const dx = e.clientX - s.x;
+        const dy = e.clientY - s.y;
+        const box =
+          mode === "move"
+            ? { left: s.left + dx, top: s.top + dy, width: s.width, height: s.height }
+            : { left: s.left + dx, top: s.top, width: s.width - dx, height: s.height + dy };
+        aiChat.box = clampAiBox(box, window.innerWidth, window.innerHeight);
+        aiApplyBox(panel);
+      };
+      const end = () => {
+        window.removeEventListener("pointermove", move);
+        window.removeEventListener("pointerup", end);
+        window.removeEventListener("pointercancel", end);
+        if (aiChat.box) aiSaveBox(aiChat.box);
+      };
+      window.addEventListener("pointermove", move);
+      window.addEventListener("pointerup", end);
+      window.addEventListener("pointercancel", end);
+    };
+    head.addEventListener("pointerdown", (ev) => start(ev, "move"));
+    grip.addEventListener("pointerdown", (ev) => start(ev, "resize"));
+  }
 
   function renderAiPanel() {
     const pageKey = location.pathname + location.search;
@@ -5825,12 +5894,12 @@
     const panel = document.createElement("div");
     panel.id = "ak-ai-panel";
     panel.innerHTML = `
-  <div class="ak-ai-head">
-    <div><div class="ak-ai-title">🤖 Tanya AI</div><div class="ak-ai-sub">Claude (Anthropic) · bantuan keputusan, bukan pengganti penilaian dokter</div></div>
+  <div class="ak-ai-head" title="Geser untuk memindahkan panel">
+    <div><div class="ak-ai-title">🧠 Tanya AI</div><div class="ak-ai-sub"></div></div>
     <div class="ak-ai-head-btns">
-      <button type="button" class="ak-ai-iconbtn" data-act="size" title="Perbesar / perkecil panel">⤢</button>
+      <button type="button" class="ak-ai-iconbtn" data-act="min" title="Perkecil / buka">–</button>
       <button type="button" class="ak-ai-iconbtn" data-act="new" title="Percakapan baru">＋</button>
-      <button type="button" class="ak-ai-iconbtn" data-act="settings" title="Pengaturan API key">⚙</button>
+      <button type="button" class="ak-ai-iconbtn" data-act="settings" title="Pengaturan: API key & model">⚙</button>
       <button type="button" class="ak-ai-iconbtn" data-act="close" title="Tutup">×</button>
     </div>
   </div>
@@ -5839,23 +5908,25 @@
     <div class="ak-ai-set-note">Buat di <a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noopener">console.anthropic.com → API Keys</a>, lalu tempel di sini. Disimpan di Violentmonkey pada perangkat ini saja.</div>
     <div class="ak-ai-set-row"><input type="password" class="ak-ai-key" placeholder="sk-ant-..." autocomplete="off" spellcheck="false"><button type="button" data-act="savekey">Simpan</button></div>
     <div class="ak-ai-set-row ak-ai-key-status"></div>
+    <div class="ak-ai-set-title">Model (ganti model = percakapan baru)</div>
+    <div class="ak-ai-set-row"><select class="ak-ai-model">${AI_MODELS.map((m) => `<option value="${m.id}">${escapePreviewHtml(`${m.label} · ${m.hint}`)}</option>`).join("")}</select></div>
   </div>
-  <div class="ak-ai-privacy">⚠ Teks dan gambar dikirim ke layanan AI di luar Klinik Pintar. Jangan menulis nama, NIK, No. RM, atau alamat pasien.</div>
+  <div class="ak-ai-privacy">⚠ Dikirim ke AI di luar Klinik Pintar. Jangan tulis nama/NIK/No. RM pasien.</div>
   <div class="ak-ai-log" aria-live="polite"></div>
   <div class="ak-ai-compose">
-    <label class="ak-ai-ctx"><input type="checkbox" class="ak-ai-ctx-check"${onRecord ? "" : " disabled"}><span>Sertakan data klinis pasien <small>umur, BB, TTV, keluhan, diagnosis; tanpa nama/identitas</small></span></label>
-    <details class="ak-ai-ctx-preview" hidden><summary>Lihat data yang akan dikirim</summary><pre></pre></details>
-    <div class="ak-ai-chips">${AI_QUICK_PROMPTS.map(([l], i) => `<button type="button" data-chip="${i}">${escapePreviewHtml(l)}</button>`).join("")}</div>
+    <div class="ak-ai-chips"><label class="ak-ai-ctx" title="Sertakan umur, BB, TTV, keluhan, diagnosis (tanpa nama/identitas)"><input type="checkbox" class="ak-ai-ctx-check"${onRecord ? "" : " disabled"}>📎 Data klinis</label>${AI_QUICK_PROMPTS.map(([l], i) => `<button type="button" data-chip="${i}">${escapePreviewHtml(l)}</button>`).join("")}</div>
+    <details class="ak-ai-ctx-preview" hidden><summary>Lihat data klinis yang dikirim</summary><pre></pre></details>
     <div class="ak-ai-thumbs"></div>
-    <textarea class="ak-ai-input" rows="2" placeholder="Tulis pertanyaan… (Ctrl+Enter untuk kirim)"></textarea>
-    <div class="ak-ai-actions">
-      <label class="ak-ai-attach" title="Lampirkan foto (lesi kulit, hasil lab, EKG)">📷 Foto<input type="file" accept="image/*" multiple hidden></label>
-      <select class="ak-ai-model" title="Model AI (ganti model = percakapan baru)">${AI_MODELS.map((m) => `<option value="${m.id}">${escapePreviewHtml(`${m.label} · ${m.hint}`)}</option>`).join("")}</select>
-      <button type="button" class="ak-ai-send" data-act="send">Kirim</button>
+    <div class="ak-ai-row">
+      <textarea class="ak-ai-input" rows="1" placeholder="Tulis pertanyaan…"></textarea>
+      <label class="ak-ai-attach" title="Lampirkan foto (lesi kulit, hasil lab, EKG)">📷<input type="file" accept="image/*" multiple hidden></label>
+      <button type="button" class="ak-ai-send" data-act="send" title="Kirim (Ctrl+Enter)">➤</button>
     </div>
+  </div>
+  <div class="ak-ai-grip" title="Tarik untuk mengubah ukuran"></div>
   </div>`;
-    if (aiChat.full) panel.classList.add("ak-ai-full");
     (document.body || document.documentElement).appendChild(panel);
+    aiApplyBox(panel);
 
     const $ = (sel) => panel.querySelector(sel);
     const log = $(".ak-ai-log");
@@ -5907,14 +5978,18 @@
       renderLog();
     };
     sendBtn.disabled = aiChat.busy;
+    aiEnableDrag(panel, $(".ak-ai-head"), $(".ak-ai-grip"));
 
     // Ganti model = percakapan baru (riwayat model lain tidak dibawa); pertanyaan
     // terakhir dikembalikan ke kotak teks supaya bisa dibandingkan dengan model ini.
     const modelSelect = $(".ak-ai-model");
+    const sub = $(".ak-ai-sub");
     modelSelect.value = aiGetModel();
+    sub.textContent = aiModelInfo(modelSelect.value).label;
     modelSelect.addEventListener("change", () => {
       if (aiChat.busy) return (modelSelect.value = aiGetModel());
       aiSetModel(modelSelect.value);
+      sub.textContent = aiModelInfo(modelSelect.value).label;
       if (aiChat.messages.length && aiChat.convModel && aiChat.convModel !== modelSelect.value) {
         const lastQ = [...aiChat.view].reverse().find((m) => m.role === "user")?.text || "";
         aiChat.messages = [];
@@ -5995,9 +6070,9 @@
       if (!t || !panel.contains(t)) return;
       const act = t.dataset.act;
       if (act === "close") return close();
-      if (act === "size") {
-        aiChat.full = !aiChat.full;
-        return panel.classList.toggle("ak-ai-full", aiChat.full);
+      if (act === "min") {
+        aiChat.min = !aiChat.min;
+        return aiApplyBox(panel);
       }
       if (act === "settings") return (settings.hidden = !settings.hidden);
       if (act === "send") return send();
@@ -6228,7 +6303,12 @@
       ev.preventDefault();
       ev.stopPropagation();
       closeMainSubmenu();
-      if (document.getElementById("ak-ai-panel")) return document.getElementById("ak-ai-panel").remove();
+      const open = document.getElementById("ak-ai-panel");
+      if (open && aiChat.min) {
+        aiChat.min = false;
+        return aiApplyBox(open);
+      }
+      if (open) return open.remove();
       try {
         renderAiPanel();
       } catch (e) {
@@ -6589,91 +6669,90 @@
     #auto-klinik-submenu button.ak-primary small{color:#fff7ed!important;}
     .ai-notify{font-size:13px!important;font-weight:600!important;}
 
-    /* ---------- Tanya AI (panel kanan; halaman tetap bisa dipakai) ---------- */
-    /* v10.9.0: setengah layar bagian atas kanan, agar tidak tertutup tombol chat Klinik Pintar di kanan bawah. */
-    #ak-ai-panel{position:fixed!important;top:0!important;right:0!important;bottom:auto!important;z-index:2147483645!important;
-      height:50vh!important;min-height:340px!important;max-height:100vh!important;border-bottom:2px solid #cbd5e1!important;border-bottom-left-radius:14px!important;overflow:hidden!important;
-      width:min(460px,100vw)!important;display:flex!important;flex-direction:column!important;background:#f8fafc!important;
-      border-left:1px solid #cbd5e1!important;box-shadow:-12px 0 36px rgba(15,23,42,.22)!important;box-sizing:border-box!important;
-      font:500 14px/1.5 ${AK_FONT}!important;color:#0f172a!important;}
-    #ak-ai-panel.ak-ai-full{height:100vh!important;height:100dvh!important;border-bottom-left-radius:0!important;}
+    /* ---------- Tanya AI (panel mengambang; bisa digeser, diubah ukuran, diperkecil) ---------- */
+    /* v10.11.0: ukuran bawaan 60% dari v10.9 (lebar ±276 px / 60% layar HP, tinggi 30% layar). */
+    #ak-ai-panel{position:fixed!important;top:8px!important;right:8px!important;bottom:auto!important;left:auto!important;z-index:2147483645!important;
+      width:min(276px,60vw)!important;height:30vh!important;min-width:200px!important;min-height:220px!important;
+      display:flex!important;flex-direction:column!important;overflow:hidden!important;background:#f8fafc!important;
+      border:1px solid #94a3b8!important;border-radius:12px!important;box-shadow:0 12px 32px rgba(15,23,42,.28)!important;box-sizing:border-box!important;
+      font:500 12.5px/1.45 ${AK_FONT}!important;color:#0f172a!important;}
+    #ak-ai-panel.ak-ai-min{height:auto!important;min-height:0!important;}
+    #ak-ai-panel.ak-ai-min > :not(.ak-ai-head){display:none!important;}
     #ak-ai-panel *{box-sizing:border-box!important;}
     #ak-ai-panel [hidden]{display:none!important;}
     #ak-ai-panel .ak-ai-head,#ak-ai-panel .ak-ai-privacy,#ak-ai-panel .ak-ai-settings{flex:none!important;}
-    #ak-ai-panel .ak-ai-head{display:flex!important;align-items:center!important;justify-content:space-between!important;gap:8px!important;
-      padding:8px 10px 8px 14px!important;background:#1e293b!important;border-bottom:3px solid #7c3aed!important;color:#fff!important;}
-    #ak-ai-panel .ak-ai-title{font:800 17px/1.2 ${AK_FONT}!important;color:#fff!important;}
-    #ak-ai-panel .ak-ai-sub{font:500 11.5px/1.35 ${AK_FONT}!important;color:#cbd5e1!important;margin-top:2px!important;}
-    #ak-ai-panel .ak-ai-head-btns{display:flex!important;gap:6px!important;flex:none!important;}
-    #ak-ai-panel .ak-ai-iconbtn{width:34px!important;height:34px!important;border:0!important;border-radius:10px!important;background:#334155!important;
-      color:#fff!important;font:400 19px/1 ${AK_FONT}!important;cursor:pointer!important;padding:0!important;}
+    #ak-ai-panel .ak-ai-head{display:flex!important;align-items:center!important;justify-content:space-between!important;gap:6px!important;
+      padding:5px 6px 5px 10px!important;background:#1e293b!important;border-bottom:2px solid #7c3aed!important;color:#fff!important;
+      cursor:move!important;touch-action:none!important;user-select:none!important;-webkit-user-select:none!important;}
+    #ak-ai-panel .ak-ai-title{font:800 13px/1.2 ${AK_FONT}!important;color:#fff!important;white-space:nowrap!important;}
+    #ak-ai-panel .ak-ai-sub{font:600 10px/1.2 ${AK_FONT}!important;color:#c4b5fd!important;white-space:nowrap!important;}
+    #ak-ai-panel .ak-ai-head-btns{display:flex!important;gap:4px!important;flex:none!important;}
+    #ak-ai-panel .ak-ai-iconbtn{width:26px!important;height:26px!important;border:0!important;border-radius:7px!important;background:#334155!important;
+      color:#fff!important;font:700 14px/1 ${AK_FONT}!important;cursor:pointer!important;padding:0!important;touch-action:manipulation!important;}
     #ak-ai-panel .ak-ai-iconbtn:hover{background:#475569!important;}
-    #ak-ai-panel .ak-ai-settings{padding:12px 16px!important;background:#ede9fe!important;border-bottom:1px solid #c4b5fd!important;}
-    #ak-ai-panel .ak-ai-set-title{font:800 13px/1.3 ${AK_FONT}!important;color:#4c1d95!important;}
-    #ak-ai-panel .ak-ai-set-note{font:500 12.5px/1.45 ${AK_FONT}!important;color:#4c1d95!important;margin:4px 0 8px!important;}
+    #ak-ai-panel .ak-ai-settings{max-height:60%!important;overflow:auto!important;padding:8px 10px!important;background:#ede9fe!important;border-bottom:1px solid #c4b5fd!important;}
+    #ak-ai-panel .ak-ai-set-title{font:800 11.5px/1.3 ${AK_FONT}!important;color:#4c1d95!important;}
+    #ak-ai-panel .ak-ai-set-note{font:500 11px/1.4 ${AK_FONT}!important;color:#4c1d95!important;margin:2px 0 6px!important;}
     #ak-ai-panel .ak-ai-set-note a{color:#6d28d9!important;font-weight:700!important;text-decoration:underline!important;}
-    #ak-ai-panel .ak-ai-set-row{display:flex!important;gap:8px!important;align-items:center!important;font:600 12.5px/1.4 ${AK_FONT}!important;color:#4c1d95!important;}
-    #ak-ai-panel .ak-ai-set-row + .ak-ai-set-row{margin-top:6px!important;}
-    #ak-ai-panel .ak-ai-key{flex:1!important;min-width:0!important;height:38px!important;padding:0 10px!important;border:1.5px solid #a78bfa!important;
-      border-radius:10px!important;background:#fff!important;font:500 14px ${AK_FONT}!important;color:#0f172a!important;}
-    #ak-ai-panel .ak-ai-settings button{height:34px!important;padding:0 12px!important;border:0!important;border-radius:10px!important;
-      background:#7c3aed!important;color:#fff!important;font:700 13px ${AK_FONT}!important;cursor:pointer!important;}
-    #ak-ai-panel .ak-ai-key-status button{height:28px!important;background:#fff!important;color:#7c3aed!important;border:1px solid #a78bfa!important;}
-    #ak-ai-panel .ak-ai-privacy{padding:5px 14px!important;background:#fffbeb!important;border-bottom:1px solid #fde68a!important;
-      font:600 12px/1.4 ${AK_FONT}!important;color:#92400e!important;}
-    #ak-ai-panel .ak-ai-log{flex:1 1 auto!important;min-height:0!important;overflow:auto!important;padding:10px!important;display:flex!important;flex-direction:column!important;gap:10px!important;}
-    #ak-ai-panel .ak-ai-empty{margin:auto 8px!important;text-align:center!important;color:#475569!important;font:500 13.5px/1.55 ${AK_FONT}!important;}
-    #ak-ai-panel .ak-ai-msg{max-width:92%!important;padding:10px 12px!important;border-radius:14px!important;word-break:break-word!important;
-      font:500 14px/1.55 ${AK_FONT}!important;}
-    #ak-ai-panel .ak-ai-user{align-self:flex-end!important;background:#7c3aed!important;color:#fff!important;border-bottom-right-radius:4px!important;}
-    #ak-ai-panel .ak-ai-bot{align-self:flex-start!important;background:#fff!important;border:1px solid #e2e8f0!important;border-bottom-left-radius:4px!important;color:#0f172a!important;}
+    #ak-ai-panel .ak-ai-set-row{display:flex!important;gap:6px!important;align-items:center!important;font:600 11px/1.4 ${AK_FONT}!important;color:#4c1d95!important;}
+    #ak-ai-panel .ak-ai-set-row + .ak-ai-set-row,#ak-ai-panel .ak-ai-set-row + .ak-ai-set-title{margin-top:6px!important;}
+    #ak-ai-panel .ak-ai-key,#ak-ai-panel .ak-ai-model{flex:1!important;min-width:0!important;height:30px!important;padding:0 8px!important;border:1.5px solid #a78bfa!important;
+      border-radius:8px!important;background:#fff!important;font:500 12px ${AK_FONT}!important;color:#0f172a!important;}
+    #ak-ai-panel .ak-ai-settings button{height:28px!important;padding:0 10px!important;border:0!important;border-radius:8px!important;
+      background:#7c3aed!important;color:#fff!important;font:700 11.5px ${AK_FONT}!important;cursor:pointer!important;}
+    #ak-ai-panel .ak-ai-key-status button{height:24px!important;background:#fff!important;color:#7c3aed!important;border:1px solid #a78bfa!important;}
+    #ak-ai-panel .ak-ai-privacy{padding:3px 10px!important;background:#fffbeb!important;border-bottom:1px solid #fde68a!important;
+      font:600 10px/1.35 ${AK_FONT}!important;color:#92400e!important;}
+    #ak-ai-panel .ak-ai-log{flex:1 1 auto!important;min-height:0!important;overflow:auto!important;padding:8px!important;display:flex!important;flex-direction:column!important;gap:7px!important;}
+    #ak-ai-panel .ak-ai-empty{margin:auto 4px!important;text-align:center!important;color:#475569!important;font:500 11.5px/1.45 ${AK_FONT}!important;}
+    #ak-ai-panel .ak-ai-msg{max-width:94%!important;padding:7px 9px!important;border-radius:11px!important;word-break:break-word!important;
+      font:500 12.5px/1.5 ${AK_FONT}!important;}
+    #ak-ai-panel .ak-ai-user{align-self:flex-end!important;background:#7c3aed!important;color:#fff!important;border-bottom-right-radius:3px!important;}
+    #ak-ai-panel .ak-ai-bot{align-self:flex-start!important;background:#fff!important;border:1px solid #e2e8f0!important;border-bottom-left-radius:3px!important;color:#0f172a!important;}
     #ak-ai-panel .ak-ai-error{align-self:flex-start!important;background:#fef2f2!important;border:1px solid #fecaca!important;color:#991b1b!important;font-weight:600!important;}
     #ak-ai-panel .ak-ai-wait{color:#64748b!important;font-style:italic!important;}
-    #ak-ai-panel .ak-ai-bot p{margin:0 0 6px!important;}
-    #ak-ai-panel .ak-ai-bot ul,#ak-ai-panel .ak-ai-bot ol{margin:2px 0 8px!important;padding-left:20px!important;}
-    #ak-ai-panel .ak-ai-bot li{margin:2px 0!important;}
-    #ak-ai-panel .ak-ai-bot code{background:#f1f5f9!important;padding:0 4px!important;border-radius:4px!important;font-size:13px!important;}
-    #ak-ai-panel .ak-ai-h{font:800 14.5px/1.35 ${AK_FONT}!important;color:#4c1d95!important;margin:8px 0 4px!important;}
-    #ak-ai-panel .ak-ai-tag{margin-top:6px!important;font:600 11.5px/1.3 ${AK_FONT}!important;opacity:.85!important;}
-    #ak-ai-panel .ak-ai-copy{margin-top:4px!important;padding:3px 10px!important;border:1px solid #cbd5e1!important;border-radius:999px!important;
-      background:#f8fafc!important;color:#475569!important;font:600 12px ${AK_FONT}!important;cursor:pointer!important;}
-    #ak-ai-panel .ak-ai-msg-imgs{display:flex!important;flex-wrap:wrap!important;gap:4px!important;margin-bottom:6px!important;}
-    #ak-ai-panel .ak-ai-msg-imgs img{width:72px!important;height:72px!important;object-fit:cover!important;border-radius:8px!important;}
-    #ak-ai-panel .ak-ai-compose{flex:none!important;padding:8px 10px 10px!important;background:#fff!important;border-top:2px solid #e2e8f0!important;
-      display:flex!important;flex-direction:column!important;gap:6px!important;}
-    #ak-ai-panel .ak-ai-ctx{display:flex!important;gap:8px!important;align-items:flex-start!important;font:700 13px/1.35 ${AK_FONT}!important;color:#1e293b!important;cursor:pointer!important;}
-    #ak-ai-panel .ak-ai-ctx input{margin-top:2px!important;width:17px!important;height:17px!important;accent-color:#7c3aed!important;flex:none!important;}
-    #ak-ai-panel .ak-ai-ctx small{display:block!important;font:500 11.5px/1.35 ${AK_FONT}!important;color:#64748b!important;}
-    #ak-ai-panel .ak-ai-ctx-preview{font:500 12px ${AK_FONT}!important;color:#475569!important;}
+    #ak-ai-panel .ak-ai-bot p{margin:0 0 4px!important;}
+    #ak-ai-panel .ak-ai-bot ul,#ak-ai-panel .ak-ai-bot ol{margin:2px 0 6px!important;padding-left:17px!important;}
+    #ak-ai-panel .ak-ai-bot li{margin:1px 0!important;}
+    #ak-ai-panel .ak-ai-bot code{background:#f1f5f9!important;padding:0 3px!important;border-radius:4px!important;font-size:11.5px!important;}
+    #ak-ai-panel .ak-ai-h{font:800 12.5px/1.35 ${AK_FONT}!important;color:#4c1d95!important;margin:6px 0 3px!important;}
+    #ak-ai-panel .ak-ai-tag{margin-top:4px!important;font:600 10.5px/1.3 ${AK_FONT}!important;opacity:.85!important;}
+    #ak-ai-panel .ak-ai-meta{margin-top:4px!important;font:600 10px/1.3 ${AK_FONT}!important;color:#64748b!important;}
+    #ak-ai-panel .ak-ai-copy{margin-top:3px!important;padding:2px 8px!important;border:1px solid #cbd5e1!important;border-radius:999px!important;
+      background:#f8fafc!important;color:#475569!important;font:600 10.5px ${AK_FONT}!important;cursor:pointer!important;}
+    #ak-ai-panel .ak-ai-msg-imgs{display:flex!important;flex-wrap:wrap!important;gap:3px!important;margin-bottom:4px!important;}
+    #ak-ai-panel .ak-ai-msg-imgs img{width:52px!important;height:52px!important;object-fit:cover!important;border-radius:6px!important;}
+    #ak-ai-panel .ak-ai-compose{flex:none!important;padding:6px 6px 7px!important;background:#fff!important;border-top:1px solid #e2e8f0!important;
+      display:flex!important;flex-direction:column!important;gap:5px!important;}
+    #ak-ai-panel .ak-ai-chips{display:flex!important;flex-wrap:nowrap!important;gap:4px!important;overflow-x:auto!important;scrollbar-width:none!important;}
+    #ak-ai-panel .ak-ai-chips > *{flex:none!important;white-space:nowrap!important;padding:3px 8px!important;border:1px solid #c4b5fd!important;border-radius:999px!important;
+      background:#f5f3ff!important;color:#5b21b6!important;font:600 10.5px/1.3 ${AK_FONT}!important;cursor:pointer!important;}
+    #ak-ai-panel .ak-ai-ctx{display:inline-flex!important;align-items:center!important;gap:3px!important;}
+    #ak-ai-panel .ak-ai-ctx input{width:12px!important;height:12px!important;margin:0!important;accent-color:#7c3aed!important;}
+    #ak-ai-panel .ak-ai-ctx:has(input:checked){background:#7c3aed!important;border-color:#7c3aed!important;color:#fff!important;}
+    #ak-ai-panel .ak-ai-ctx:has(input:disabled){opacity:.5!important;cursor:not-allowed!important;}
+    #ak-ai-panel .ak-ai-ctx-preview{font:500 10.5px ${AK_FONT}!important;color:#475569!important;}
     #ak-ai-panel .ak-ai-ctx-preview summary{cursor:pointer!important;font-weight:700!important;color:#6d28d9!important;}
-    #ak-ai-panel .ak-ai-ctx-preview pre{white-space:pre-wrap!important;margin:4px 0 0!important;padding:8px!important;max-height:72px!important;overflow:auto!important;
-      background:#f1f5f9!important;border-radius:8px!important;font:500 12px/1.45 ${AK_FONT}!important;color:#334155!important;}
-    #ak-ai-panel .ak-ai-chips{display:flex!important;flex-wrap:nowrap!important;gap:6px!important;overflow-x:auto!important;scrollbar-width:none!important;}
-    #ak-ai-panel .ak-ai-chips button{flex:none!important;white-space:nowrap!important;}
-    #ak-ai-panel .ak-ai-chips button{padding:5px 10px!important;border:1px solid #c4b5fd!important;border-radius:999px!important;background:#f5f3ff!important;
-      color:#5b21b6!important;font:600 12px ${AK_FONT}!important;cursor:pointer!important;}
-    #ak-ai-panel .ak-ai-thumbs{display:flex!important;flex-wrap:wrap!important;gap:6px!important;}
+    #ak-ai-panel .ak-ai-ctx-preview pre{white-space:pre-wrap!important;margin:3px 0 0!important;padding:5px!important;max-height:60px!important;overflow:auto!important;
+      background:#f1f5f9!important;border-radius:6px!important;font:500 10.5px/1.4 ${AK_FONT}!important;color:#334155!important;}
+    #ak-ai-panel .ak-ai-thumbs{display:flex!important;flex-wrap:wrap!important;gap:5px!important;}
     #ak-ai-panel .ak-ai-thumbs:empty{display:none!important;}
     #ak-ai-panel .ak-ai-thumb{position:relative!important;}
-    #ak-ai-panel .ak-ai-thumb img{width:56px!important;height:56px!important;object-fit:cover!important;border-radius:8px!important;border:1px solid #cbd5e1!important;}
-    #ak-ai-panel .ak-ai-thumb button{position:absolute!important;top:-6px!important;right:-6px!important;width:20px!important;height:20px!important;padding:0!important;
-      border:0!important;border-radius:999px!important;background:#b91c1c!important;color:#fff!important;font:700 13px/20px ${AK_FONT}!important;cursor:pointer!important;}
-    #ak-ai-panel .ak-ai-input{width:100%!important;min-height:46px!important;max-height:25vh!important;resize:vertical!important;padding:10px!important;
-      border:1.5px solid #94a3b8!important;border-radius:12px!important;background:#fff!important;color:#0f172a!important;font:500 14.5px/1.45 ${AK_FONT}!important;}
-    #ak-ai-panel .ak-ai-input:focus{outline:none!important;border-color:#7c3aed!important;box-shadow:0 0 0 3px rgba(124,58,237,.18)!important;}
-    #ak-ai-panel .ak-ai-actions{display:flex!important;justify-content:space-between!important;align-items:center!important;gap:8px!important;}
-    #ak-ai-panel .ak-ai-attach{padding:8px 12px!important;border:1.5px solid #94a3b8!important;border-radius:10px!important;background:#fff!important;
-      color:#334155!important;font:700 13px ${AK_FONT}!important;cursor:pointer!important;}
-    #ak-ai-panel .ak-ai-model{flex:1!important;min-width:0!important;height:38px!important;padding:0 8px!important;border:1.5px solid #94a3b8!important;
-      border-radius:10px!important;background:#fff!important;color:#334155!important;font:600 12.5px ${AK_FONT}!important;}
-    #ak-ai-panel .ak-ai-meta{margin-top:6px!important;font:600 11px/1.3 ${AK_FONT}!important;color:#64748b!important;}
-    #ak-ai-panel .ak-ai-send{min-width:96px!important;height:42px!important;border:0!important;border-radius:12px!important;background:#7c3aed!important;
-      color:#fff!important;font:800 15px ${AK_FONT}!important;cursor:pointer!important;box-shadow:0 4px 12px rgba(124,58,237,.3)!important;}
-    @media (max-width:600px){
-      #ak-ai-panel .ak-ai-sub{display:none!important;}
-      #ak-ai-panel .ak-ai-ctx small{display:none!important;}
-    }
-    #ak-ai-panel .ak-ai-send:disabled{background:#94a3b8!important;cursor:wait!important;box-shadow:none!important;}
+    #ak-ai-panel .ak-ai-thumb img{width:38px!important;height:38px!important;object-fit:cover!important;border-radius:6px!important;border:1px solid #cbd5e1!important;}
+    #ak-ai-panel .ak-ai-thumb button{position:absolute!important;top:-5px!important;right:-5px!important;width:16px!important;height:16px!important;padding:0!important;
+      border:0!important;border-radius:999px!important;background:#b91c1c!important;color:#fff!important;font:700 11px/16px ${AK_FONT}!important;cursor:pointer!important;}
+    #ak-ai-panel .ak-ai-row{display:flex!important;align-items:flex-end!important;gap:5px!important;padding-left:8px!important;}
+    #ak-ai-panel .ak-ai-input{flex:1!important;min-width:0!important;height:36px!important;min-height:32px!important;max-height:20vh!important;resize:vertical!important;padding:6px 8px!important;
+      border:1.5px solid #94a3b8!important;border-radius:9px!important;background:#fff!important;color:#0f172a!important;font:500 12.5px/1.4 ${AK_FONT}!important;}
+    #ak-ai-panel .ak-ai-input:focus{outline:none!important;border-color:#7c3aed!important;box-shadow:0 0 0 2px rgba(124,58,237,.18)!important;}
+    #ak-ai-panel .ak-ai-attach{flex:none!important;display:inline-flex!important;align-items:center!important;justify-content:center!important;width:32px!important;height:36px!important;
+      border:1.5px solid #94a3b8!important;border-radius:9px!important;background:#fff!important;font:400 15px/1 ${AK_FONT}!important;cursor:pointer!important;}
+    #ak-ai-panel .ak-ai-send{flex:none!important;width:40px!important;height:36px!important;border:0!important;border-radius:9px!important;background:#7c3aed!important;
+      color:#fff!important;font:800 15px/1 ${AK_FONT}!important;cursor:pointer!important;padding:0!important;}
+    #ak-ai-panel .ak-ai-send:disabled{background:#94a3b8!important;cursor:wait!important;}
+    #ak-ai-panel .ak-ai-grip{position:absolute!important;left:0!important;bottom:0!important;width:16px!important;height:16px!important;cursor:nesw-resize!important;
+      touch-action:none!important;z-index:2!important;background:linear-gradient(45deg,transparent 0 30%,#94a3b8 30% 38%,transparent 38% 52%,#94a3b8 52% 60%,transparent 60%)!important;
+      transform:scaleX(-1)!important;}
   `;
 
   function start() {
@@ -6787,6 +6866,7 @@
       aiErrorMessage,
       aiAnswerToHtml,
       maskApiKey,
+      clampAiBox,
     });
     return;
   }
