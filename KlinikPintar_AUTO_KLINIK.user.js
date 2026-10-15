@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Klinik Pintar - AUTO KLINIK
 // @namespace    klinikpintar-auto
-// @version      10.13.0
+// @version      10.14.0
 // @description  AUTO KLINIK untuk os.klinikpintar.id — RESUME + DIAGNOSIS + RESEP, Resume, Paket Resep Golongan, Tanya AI. Tidak pernah menekan Simpan otomatis.
 // @author       taufanmtknight-debug
 // @match        https://os.klinikpintar.id/*
@@ -14,6 +14,7 @@
 // @grant        GM_getValue
 // @grant        GM_setValue
 // @connect      api.anthropic.com
+// @connect      raw.githubusercontent.com
 // @homepageURL  https://github.com/taufanmtknight-debug/klinikpintar-auto-klinik-rilis
 // @updateURL    https://raw.githubusercontent.com/taufanmtknight-debug/klinikpintar-auto-klinik-rilis/main/KlinikPintar_AUTO_KLINIK.user.js
 // @downloadURL  https://raw.githubusercontent.com/taufanmtknight-debug/klinikpintar-auto-klinik-rilis/main/KlinikPintar_AUTO_KLINIK.user.js
@@ -39,7 +40,7 @@
 
   // Versi diambil dari header (GM_info) agar label launcher tidak pernah beda
   // dengan @version. Nilai cadangan WAJIB sama dengan @version (dicek oleh test).
-  const SCRIPT_VERSION_FALLBACK = "10.13.0";
+  const SCRIPT_VERSION_FALLBACK = "10.14.0";
   const VERSION =
     (typeof GM_info !== "undefined" && GM_info?.script?.version) ||
     SCRIPT_VERSION_FALLBACK;
@@ -5966,6 +5967,7 @@
   }
 
   function renderAiPanel() {
+    if (!lockUnlocked) return;
     const pageKey = location.pathname + location.search;
     let notice = "";
     if (aiChat.pageKey && aiChat.pageKey !== pageKey && aiChat.view.length && !aiChat.busy) {
@@ -6229,6 +6231,212 @@
   }
 
   // ============================================================
+  // 7c. KUNCI PERANGKAT (v10.14.0)
+  // ============================================================
+  // Perangkat yang belum dibuka dengan PIN dokter hanya menampilkan tombol 🔒:
+  // menu, Paket Resep, dan Tanya AI tidak bisa dipakai, dan API key Tanya AI
+  // yang tersimpan di perangkat itu dihapus.
+  // Sakelar jarak jauh = kunci.json di repo rilis (dibaca tiap buka halaman & tiap 10 mnt):
+  //   epoch naik  → semua perangkat terkunci lagi (dokter memasukkan PIN ulang),
+  //   off: true   → semua perangkat berhenti (PIN pun tidak bisa membuka),
+  //   salt + hash → ganti PIN tanpa rilis script.
+  // Bila kunci.json tidak terbaca, dipakai salinan terakhir / bawaan di bawah.
+  const LOCK_DEFAULT = Object.freeze({
+    epoch: 1,
+    off: false,
+    iter: 150000,
+    salt: "61ad050bd1e122a4996811b17921f4d9",
+    hash: "77b7d68c9b6a0b6ee0ab9239902125c356c022869f1a45160bfaf909cb6ac07f",
+  });
+  const LOCK_STORE = "ak_lock_v1";
+  const LOCK_REMOTE_STORE = "ak_lock_remote";
+  const LOCK_REMOTE_URL =
+    "https://raw.githubusercontent.com/taufanmtknight-debug/klinikpintar-auto-klinik-rilis/main/kunci.json";
+
+  // Gabungkan kunci.json dengan bawaan. Epoch tidak bisa turun di bawah bawaan
+  // (salinan lama/rusak tidak membuka perangkat yang sudah dikunci ulang).
+  function normalizeLockConfig(raw) {
+    const cfg = { ...LOCK_DEFAULT };
+    if (!raw || typeof raw !== "object") return cfg;
+    const ep = Number(raw.epoch);
+    if (Number.isInteger(ep) && ep > cfg.epoch) cfg.epoch = ep;
+    if (raw.off === true) cfg.off = true;
+    const hexOk = (v, n) => typeof v === "string" && new RegExp(`^[0-9a-f]{${n},}$`).test(v);
+    if (hexOk(raw.salt, 16) && hexOk(raw.hash, 64) && raw.hash.length === 64) {
+      cfg.salt = raw.salt;
+      cfg.hash = raw.hash;
+      const it = Number(raw.iter);
+      cfg.iter = Number.isInteger(it) && it >= 10000 && it <= 2000000 ? it : LOCK_DEFAULT.iter;
+    }
+    return cfg;
+  }
+
+  function isDeviceUnlocked(state, cfg) {
+    if (!cfg || cfg.off) return false;
+    const ep = Number(state?.epoch);
+    return Number.isFinite(ep) && ep >= cfg.epoch && state?.hash === cfg.hash;
+  }
+
+  // PBKDF2-SHA256 (WebCrypto) → hex.
+  async function lockHashPin(pin, salt, iter) {
+    const subtle = globalThis.crypto?.subtle;
+    if (!subtle) throw new Error("Browser tidak mendukung WebCrypto; buka Klinik Pintar lewat https://");
+    const enc = new TextEncoder();
+    const key = await subtle.importKey("raw", enc.encode(String(pin)), "PBKDF2", false, ["deriveBits"]);
+    const bits = await subtle.deriveBits(
+      { name: "PBKDF2", hash: "SHA-256", salt: enc.encode(String(salt)), iterations: iter },
+      key,
+      256,
+    );
+    return Array.from(new Uint8Array(bits), (b) => b.toString(16).padStart(2, "0")).join("");
+  }
+
+  const lockStoreOk = () => typeof GM_getValue === "function" && typeof GM_setValue === "function";
+  function lockRead(key) {
+    try {
+      if (lockStoreOk()) return JSON.parse(GM_getValue(key, "null"));
+    } catch (_) {}
+    return null;
+  }
+  function lockWrite(key, value) {
+    try {
+      if (lockStoreOk()) GM_setValue(key, JSON.stringify(value));
+    } catch (_) {}
+  }
+
+  let lockCfg = normalizeLockConfig(lockRead(LOCK_REMOTE_STORE));
+  let lockUnlocked = isDeviceUnlocked(lockRead(LOCK_STORE), lockCfg);
+  let lockFails = 0;
+  let lockBlockedUntil = 0;
+
+  // Perangkat terkunci: hapus API key Tanya AI, tutup panel, ganti launcher.
+  function applyLockState() {
+    if (lockUnlocked) return;
+    aiKeyMemory = "";
+    try {
+      if (lockStoreOk() && GM_getValue(AI_KEY_STORE, "")) GM_setValue(AI_KEY_STORE, "");
+    } catch (_) {}
+    document.getElementById("ak-ai-panel")?.remove();
+  }
+
+  function refreshLauncher() {
+    document.getElementById("auto-klinik-box")?.remove();
+    document.getElementById("ak-lock-panel")?.remove();
+    ensureButtonMounted();
+  }
+
+  function setLockConfig(raw) {
+    const was = lockUnlocked;
+    lockCfg = normalizeLockConfig(raw);
+    lockUnlocked = isDeviceUnlocked(lockRead(LOCK_STORE), lockCfg);
+    if (was && !lockUnlocked) {
+      applyLockState();
+      refreshLauncher();
+      notify("Auto Klinik dikunci oleh pemilik. Masukkan PIN untuk membuka.", "warn", 10000);
+    }
+  }
+
+  function fetchLockConfig() {
+    const gmx =
+      typeof GM_xmlhttpRequest === "function"
+        ? GM_xmlhttpRequest
+        : typeof GM !== "undefined" && typeof GM?.xmlHttpRequest === "function"
+          ? GM.xmlHttpRequest
+          : null;
+    if (!gmx) return;
+    try {
+      gmx({
+        method: "GET",
+        url: `${LOCK_REMOTE_URL}?t=${Date.now()}`,
+        timeout: 15000,
+        onload: (r) => {
+          if (r.status !== 200) return;
+          let raw;
+          try {
+            raw = JSON.parse(r.responseText);
+          } catch (_) {
+            return;
+          }
+          lockWrite(LOCK_REMOTE_STORE, raw);
+          setLockConfig(raw);
+        },
+      });
+    } catch (_) {}
+  }
+
+  function lockThisDevice() {
+    if (!confirm("Kunci Auto Klinik di perangkat ini?\n\nPerlu PIN untuk membuka lagi, dan API key Tanya AI di perangkat ini dihapus.")) return;
+    lockWrite(LOCK_STORE, null);
+    lockUnlocked = false;
+    applyLockState();
+    refreshLauncher();
+    notify("Auto Klinik terkunci di perangkat ini.", "success", 6000);
+  }
+
+  function renderLockPanel() {
+    const old = document.getElementById("ak-lock-panel");
+    if (old) return old.remove();
+    const panel = document.createElement("div");
+    panel.id = "ak-lock-panel";
+    panel.setAttribute("data-auto-klinik", "1");
+    if (lockCfg.off) {
+      panel.innerHTML = `<b>🔒 Auto Klinik dimatikan</b><p>Pemilik script mematikan Auto Klinik di semua perangkat.</p>`;
+      document.body.appendChild(panel);
+      return;
+    }
+    panel.innerHTML = `
+      <b>🔒 Auto Klinik terkunci di perangkat ini</b>
+      <p>Masukkan PIN dokter pemilik script.</p>
+      <form class="ak-lock-row">
+        <input type="password" inputmode="numeric" autocomplete="off" placeholder="PIN" aria-label="PIN">
+        <button type="submit">Buka</button>
+      </form>
+      <p class="ak-lock-msg"></p>`;
+    document.body.appendChild(panel);
+    const input = panel.querySelector("input");
+    const btn = panel.querySelector("button");
+    const msg = panel.querySelector(".ak-lock-msg");
+    panel.querySelector("form").addEventListener("submit", async (ev) => {
+      ev.preventDefault();
+      ev.stopPropagation();
+      if (Date.now() < lockBlockedUntil) {
+        msg.textContent = "Terlalu banyak salah. Coba lagi sebentar lagi.";
+        return;
+      }
+      const pin = input.value.trim();
+      if (!pin) return input.focus();
+      btn.disabled = true;
+      msg.textContent = "Memeriksa…";
+      try {
+        const cfg = lockCfg;
+        const hash = await lockHashPin(pin, cfg.salt, cfg.iter);
+        if (hash === cfg.hash && !cfg.off) {
+          lockWrite(LOCK_STORE, { epoch: cfg.epoch, hash: cfg.hash, at: Date.now() });
+          lockUnlocked = true;
+          lockFails = 0;
+          refreshLauncher();
+          notify("Auto Klinik terbuka di perangkat ini.", "success", 5000);
+          return;
+        }
+        lockFails++;
+        if (lockFails >= 5) {
+          lockBlockedUntil = Date.now() + 60000;
+          lockFails = 0;
+        }
+        await new Promise((r) => setTimeout(r, 1500));
+        msg.textContent = "PIN salah.";
+        input.value = "";
+        input.focus();
+      } catch (e) {
+        msg.textContent = e?.message || String(e);
+      } finally {
+        btn.disabled = false;
+      }
+    });
+    input.focus();
+  }
+
+  // ============================================================
   // 8. UI & BOOT — notifikasi, kunci proses, launcher, CSS
   // ============================================================
 
@@ -6337,6 +6545,13 @@
       desc: "Pilih obat & racikan sesuai umur/BB",
       run: () => renderMedicationGroupPackagePicker(),
     },
+    {
+      id: "auto-klinik-lock",
+      icon: "🔒",
+      label: "KUNCI PERANGKAT INI",
+      desc: "Perlu PIN lagi; API key Tanya AI dihapus",
+      run: () => lockThisDevice(),
+    },
   ];
 
   function closeMainSubmenu() {
@@ -6360,6 +6575,18 @@
     const box = document.createElement("div");
     box.id = "auto-klinik-box";
     box.setAttribute("data-auto-klinik", "1");
+    if (!lockUnlocked) {
+      // v10.14.0: perangkat terkunci → hanya tombol 🔒 (tanpa menu & Tanya AI).
+      box.innerHTML = `<div class="ak-menu"><div class="ak-main-row">
+        <button id="auto-klinik-main" type="button" class="ak-locked"><span>🔒 AUTO KLINIK</span></button></div></div>`;
+      mountRoot.appendChild(box);
+      box.querySelector("#auto-klinik-main").addEventListener("click", (ev) => {
+        ev.preventDefault();
+        ev.stopPropagation();
+        renderLockPanel();
+      });
+      return;
+    }
     // v10.0.8: menu muncul DI ATAS tombol utama, jadi tombol tidak bergeser saat menu dibuka.
     const menuButton = (m) =>
       `<button id="${m.id}" type="button"${m.primary ? ' class="ak-primary"' : ""}>` +
@@ -6388,6 +6615,7 @@
       ev.preventDefault();
       ev.stopPropagation();
       closeMainSubmenu();
+      if (!lockUnlocked) return refreshLauncher();
       const open = document.getElementById("ak-ai-panel");
       if (open && aiChat.min) {
         aiChat.min = false;
@@ -6414,6 +6642,7 @@
         ev.preventDefault();
         ev.stopPropagation();
         closeMainSubmenu();
+        if (!lockUnlocked) return refreshLauncher();
         try {
           Promise.resolve(item.run()).catch((e) => notify(`${item.label}: ${e?.message || e}`, "error", 12000));
         } catch (e) {
@@ -6838,6 +7067,20 @@
     #ak-ai-panel .ak-ai-grip{position:absolute!important;left:0!important;bottom:0!important;width:16px!important;height:16px!important;cursor:nesw-resize!important;
       touch-action:none!important;z-index:2!important;background:linear-gradient(45deg,transparent 0 30%,#94a3b8 30% 38%,transparent 38% 52%,#94a3b8 52% 60%,transparent 60%)!important;
       transform:scaleX(-1)!important;}
+    /* ---------- Kunci perangkat (v10.14.0) ---------- */
+    #auto-klinik-main.ak-locked{background:#475569!important;box-shadow:0 6px 18px rgba(15,23,42,.3)!important;}
+    #ak-lock-panel{position:fixed!important;right:16px!important;bottom:146px!important;z-index:2147483645!important;width:min(280px,calc(100vw - 32px))!important;
+      box-sizing:border-box!important;padding:12px!important;border-radius:12px!important;background:#fff!important;color:#0f172a!important;
+      border:1.5px solid #94a3b8!important;box-shadow:0 10px 30px rgba(15,23,42,.25)!important;font:500 13px/1.4 ${AK_FONT}!important;}
+    #ak-lock-panel b{display:block!important;font:800 13.5px/1.3 ${AK_FONT}!important;margin:0 0 4px!important;}
+    #ak-lock-panel p{margin:0 0 8px!important;font:500 12.5px/1.4 ${AK_FONT}!important;color:#334155!important;}
+    #ak-lock-panel .ak-lock-msg{margin:6px 0 0!important;color:#b91c1c!important;min-height:1em!important;}
+    #ak-lock-panel .ak-lock-row{display:flex!important;gap:6px!important;margin:0!important;}
+    #ak-lock-panel input{flex:1!important;min-width:0!important;height:36px!important;padding:6px 8px!important;border:1.5px solid #94a3b8!important;border-radius:9px!important;
+      background:#fff!important;color:#0f172a!important;font:600 15px/1 ${AK_FONT}!important;letter-spacing:.15em!important;}
+    #ak-lock-panel button{flex:none!important;height:36px!important;padding:0 14px!important;border:0!important;border-radius:9px!important;background:#0f766e!important;
+      color:#fff!important;font:800 13px/1 ${AK_FONT}!important;cursor:pointer!important;}
+    #ak-lock-panel button:disabled{background:#94a3b8!important;cursor:wait!important;}
   `;
 
   function start() {
@@ -6849,6 +7092,9 @@
     }
     root?.setAttribute("data-auto-klinik", VERSION);
     addStyle(STYLES);
+    applyLockState();
+    fetchLockConfig();
+    setInterval(fetchLockConfig, 10 * 60 * 1000);
     hookSpaNavigation();
     ensureButtonMounted();
 
@@ -6953,6 +7199,10 @@
       maskApiKey,
       clampAiBox,
       redactPatientText,
+      LOCK_DEFAULT,
+      normalizeLockConfig,
+      isDeviceUnlocked,
+      lockHashPin,
     });
     return;
   }
