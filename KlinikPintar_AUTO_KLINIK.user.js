@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Klinik Pintar - AUTO KLINIK
 // @namespace    klinikpintar-auto
-// @version      10.4.4
+// @version      10.4.5
 // @description  AUTO KLINIK untuk os.klinikpintar.id — RESUME + DIAGNOSIS + RESEP, Resume, Paket Resep Golongan. Tidak pernah menekan Simpan otomatis.
 // @author       taufanmtknight-debug
 // @match        https://os.klinikpintar.id/*
@@ -34,7 +34,7 @@
 
   // Versi diambil dari header (GM_info) agar label launcher tidak pernah beda
   // dengan @version. Nilai cadangan WAJIB sama dengan @version (dicek oleh test).
-  const SCRIPT_VERSION_FALLBACK = "10.4.4";
+  const SCRIPT_VERSION_FALLBACK = "10.4.5";
   const VERSION =
     (typeof GM_info !== "undefined" && GM_info?.script?.version) ||
     SCRIPT_VERSION_FALLBACK;
@@ -406,9 +406,10 @@
     { prefix: "BARU_BAPIL2_", title: "BAPIL 2", name: "batuk pilek 2", maxKg: 40, duration: "3", doseFreq: "3", instruction: "setelah makan", items: ["DEXAMETHASONE_05", "CTM_4", "AMBROXOL_30"] },
     // v10.4.0 (permintaan dokter): Acyclovir anak hanya puyer, tablet 400 mg.
     // v10.4.3: jumlah obat untuk 3 hari dulu (permintaan dokter).
-    // v10.4.4 (permintaan dokter): jumlah tablet dihitung dari BB SEBENARNYA, dibulatkan ke
-    // BAWAH ke 0,5 tablet terdekat, sehingga tidak pernah melebihi mgPerKg maupun maxMg/kali
-    // ("lebih baik kurang sedikit"). Lihat acyclovirQty / getWeightTemplate.
+    // v10.4.4 (permintaan dokter): jumlah tablet dihitung dari BB SEBENARNYA dan dibulatkan ke
+    // BAWAH, sehingga tidak pernah melebihi mgPerKg maupun maxMg/kali ("lebih baik kurang
+    // sedikit"). v10.4.5: kolom jumlah bahan Klinik Pintar (data-mask H#*) hanya menerima
+    // angka bulat ("2.5" menjadi 25), jadi dibulatkan ke tablet UTUH. Lihat perKgQty.
     // Varisela / zoster: 20 mg/kg/kali, 4x sehari, maks. 800 mg/kali -> 3 hari = buat 12.
     { prefix: "ACYCLOVIR_ANAK_", title: "ACYCLOVIR ANAK", name: "puyer acyclovir", step: 1, maxKg: 40, count: 12, mgPerKg: 20, tabletMg: 400, maxMg: 800, duration: "3", doseFreq: "4", instruction: "tiap 6 jam", items: ["ACYCLOVIR_400"] },
     // v10.4.2 (permintaan dokter: herpes simpleks anak TIDAK disamakan dengan varisela).
@@ -417,13 +418,12 @@
     { prefix: "ACYCLOVIR_HSV_ANAK_", title: "ACYCLOVIR HSV ANAK", name: "puyer acyclovir hsv", step: 1, maxKg: 40, count: 15, mgPerKg: 15, tabletMg: 400, maxMg: 200, duration: "3", doseFreq: "5", instruction: "tiap 4 jam (5x sehari)", items: ["ACYCLOVIR_400"] },
   ];
 
-  // Jumlah tablet untuk seluruh racikan berdasarkan mg/kg: dibulatkan ke bawah ke 0,5 tablet
-  // dan dibatasi dosis maksimal per kali. Minimal 0,5 tablet.
+  // Jumlah tablet UTUH untuk seluruh racikan berdasarkan mg/kg: dibulatkan ke bawah dan
+  // dibatasi dosis maksimal per kali. 0 = BB terlalu kecil (1 tablet sudah melebihi dosis).
   function perKgQty(s, weightKg) {
-    const half = (x) => Math.floor(x * 2 + 1e-9) / 2;
     const want = (s.mgPerKg * weightKg * s.count) / s.tabletMg;
     const cap = (s.maxMg * s.count) / s.tabletMg;
-    return Math.max(0.5, half(Math.min(want, cap)));
+    return Math.floor(Math.min(want, cap) + 1e-9);
   }
 
   const RACIKAN_TEMPLATES = {};
@@ -440,7 +440,7 @@
         instruction: s.instruction,
         compoundInstruction: `buat ${s.count || 10}`,
         // Template rentang memakai batas bawah rentang; saat dipakai dihitung ulang dari BB.
-        ingredients: s.items.map((item) => ({ item, quantity: String(s.mgPerKg ? perKgQty(s, band.minKg) : band.index) })),
+        ingredients: s.items.map((item) => ({ item, quantity: String(s.mgPerKg ? Math.max(1, perKgQty(s, band.minKg)) : band.index) })),
         ...(s.mgPerKg ? { dosing: s } : {}),
       };
     }
@@ -3316,6 +3316,9 @@
   async function selectRacikanIngredient(modal, ingredient) {
     const item = ITEMS[ingredient.item];
     if (!item) throw new Error(`Bahan racikan tidak ditemukan: ${ingredient.item}`);
+    // v10.4.5: kolom jumlah Klinik Pintar hanya angka bulat ("2.5" terbaca 25 tablet).
+    if (!/^[1-9]\d*$/.test(String(ingredient.quantity)))
+      throw new Error(`Jumlah ${item.target} harus angka bulat (tertulis ${ingredient.quantity}). Racikan belum diisi.`);
     const row = await addItemFromSearch(() => findRacikanModal() || modal, item, "racikan");
     const qty = [...row.querySelectorAll('input:not([type="hidden"])')].find(
       (i) => visible(i) && !i.disabled && !i.readOnly && !i.closest(MS_ROOT),
@@ -3766,7 +3769,9 @@
     const s = found?.tpl.dosing;
     if (!s) return found;
     // v10.4.4: dosis per kg dihitung dari BB sebenarnya (bukan batas rentang).
-    const qty = String(perKgQty(s, weightKg));
+    const n = perKgQty(s, weightKg);
+    if (n < 1) return null; // 1 tablet pun melebihi dosis: dokter menentukan sendiri.
+    const qty = String(n);
     return {
       key: found.key,
       tpl: {
