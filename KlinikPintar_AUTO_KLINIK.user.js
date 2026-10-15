@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Klinik Pintar - AUTO KLINIK
 // @namespace    klinikpintar-auto
-// @version      10.15.0
+// @version      10.16.0
 // @description  AUTO KLINIK untuk os.klinikpintar.id — RESUME + DIAGNOSIS + RESEP, Resume, Paket Resep Golongan, Tanya AI. Tidak pernah menekan Simpan otomatis.
 // @author       taufanmtknight-debug
 // @match        https://os.klinikpintar.id/*
@@ -14,6 +14,7 @@
 // @grant        GM_getValue
 // @grant        GM_setValue
 // @connect      api.anthropic.com
+// @connect      api.openai.com
 // @connect      raw.githubusercontent.com
 // @homepageURL  https://github.com/taufanmtknight-debug/klinikpintar-auto-klinik-rilis
 // @updateURL    https://raw.githubusercontent.com/taufanmtknight-debug/klinikpintar-auto-klinik-rilis/main/KlinikPintar_AUTO_KLINIK.user.js
@@ -40,7 +41,7 @@
 
   // Versi diambil dari header (GM_info) agar label launcher tidak pernah beda
   // dengan @version. Nilai cadangan WAJIB sama dengan @version (dicek oleh test).
-  const SCRIPT_VERSION_FALLBACK = "10.15.0";
+  const SCRIPT_VERSION_FALLBACK = "10.16.0";
   const VERSION =
     (typeof GM_info !== "undefined" && GM_info?.script?.version) ||
     SCRIPT_VERSION_FALLBACK;
@@ -5516,14 +5517,50 @@
   const AI_MODEL = "claude-haiku-5-5";
   const AI_KEY_STORE = "ak_ai_api_key";
   const AI_MODEL_STORE = "ak_ai_model";
-  const aiModelInfo = (id) =>
-    AI_MODELS.find((m) => m.id === id) || AI_MODELS.find((m) => m.id === AI_MODEL);
+  // v10.16.0: ChatGPT (OpenAI) dengan API key dokter sendiri, lewat Chat Completions.
+  // Daftar model OpenAI diambil dari akun dokter (GET /v1/models) saat key disimpan,
+  // karena nama model OpenAI sering berganti. Harga hanya untuk model yang dikenal.
+  const OPENAI_API_URL = "https://api.openai.com/v1/chat/completions";
+  const OPENAI_MODELS_URL = "https://api.openai.com/v1/models";
+  const AI_OPENAI_KEY_STORE = "ak_ai_openai_key";
+  const AI_OPENAI_LIST_STORE = "ak_ai_openai_models";
+  const OPENAI_DEFAULT_MODELS = ["gpt-5-mini", "gpt-5", "gpt-5-nano"];
+  const OPENAI_PRICES = {
+    "gpt-5": [1.25, 10],
+    "gpt-5-mini": [0.25, 2],
+    "gpt-5-nano": [0.05, 0.4],
+    "gpt-4.1": [2, 8],
+    "gpt-4.1-mini": [0.4, 1.6],
+    "gpt-4.1-nano": [0.1, 0.4],
+    "gpt-4o": [2.5, 10],
+    "gpt-4o-mini": [0.15, 0.6],
+  };
+  const isOpenAiModelId = (id) => /^(gpt-|chatgpt-|o\d)/i.test(String(id || ""));
+  const aiProvider = (id) => (isOpenAiModelId(id) ? "openai" : "anthropic");
+  const aiModelInfo = (id) => {
+    if (isOpenAiModelId(id)) {
+      const p = OPENAI_PRICES[id];
+      return { id, label: id, hint: "ChatGPT", provider: "openai", inUsd: p ? p[0] : null, outUsd: p ? p[1] : null, fallback: false };
+    }
+    const m = AI_MODELS.find((x) => x.id === id) || AI_MODELS.find((x) => x.id === AI_MODEL);
+    return { ...m, provider: "anthropic" };
+  };
+
+  // Model OpenAI yang bisa dipakai untuk tanya jawab teks (pure, diuji).
+  function filterOpenAiChatModels(ids) {
+    const skip = /(audio|realtime|tts|transcribe|image|search|embedding|instruct|dall|whisper|moderation|codex|computer|deep-research|sora|babbage|davinci)/i;
+    return [...new Set((ids || []).map(String).filter((id) => isOpenAiModelId(id) && !skip.test(id)))].sort();
+  }
 
   // Biaya satu jawaban dari `usage` API, dalam USD (pure, diuji). Perkiraan:
   // token cache dihitung dengan tarif input biasa.
   function aiCostUsd(modelId, usage) {
     const m = aiModelInfo(modelId);
     const u = usage || {};
+    if (m.provider === "openai") {
+      if (m.inUsd == null) return null; // harga model ini tidak diketahui
+      return ((u.prompt_tokens || 0) * m.inUsd + (u.completion_tokens || 0) * m.outUsd) / 1e6;
+    }
     const input = (u.input_tokens || 0) + (u.cache_creation_input_tokens || 0) + (u.cache_read_input_tokens || 0);
     return (input * m.inUsd + (u.output_tokens || 0) * m.outUsd) / 1e6;
   }
@@ -5662,12 +5699,17 @@
   }
 
   // Isi pesan dokter untuk API (pure, diuji).
-  function buildAiUserContent(question, { context = "", images = [] } = {}) {
+  function buildAiUserContent(question, { context = "", images = [], provider = "anthropic" } = {}) {
     const q = String(question || "").trim();
     const textPart = context
       ? `Data pasien dari halaman Klinik Pintar yang sedang dibuka (identitas disamarkan):\n${context}\n\nPertanyaan dokter:\n${q}`
       : q;
     if (!images.length) return textPart;
+    if (provider === "openai")
+      return [
+        { type: "text", text: textPart || "Tolong nilai gambar ini." },
+        ...images.map((img) => ({ type: "image_url", image_url: { url: `data:${img.mediaType};base64,${img.data}` } })),
+      ];
     return [
       ...images.map((img) => ({ type: "image", source: { type: "base64", media_type: img.mediaType, data: img.data } })),
       { type: "text", text: textPart || "Tolong nilai gambar ini." },
@@ -5697,9 +5739,50 @@
     return { url: AI_API_URL, headers, body };
   }
 
+  // Permintaan ke OpenAI Chat Completions (pure, diuji).
+  function buildOpenAiRequest(messages, apiKey, model) {
+    return {
+      url: OPENAI_API_URL,
+      headers: { "content-type": "application/json", authorization: `Bearer ${String(apiKey || "").trim()}` },
+      body: {
+        model,
+        max_completion_tokens: 16000,
+        messages: [{ role: "system", content: AI_SYSTEM_PROMPT }, ...messages],
+      },
+    };
+  }
+
+  // Jawaban OpenAI -> bentuk yang sama dengan parseAiResponse (pure, diuji).
+  function parseOpenAiResponse(status, payload) {
+    if (status < 200 || status >= 300) throw new Error(aiErrorMessage(status, payload, "openai"));
+    const choice = payload?.choices?.[0] || {};
+    const msg = choice.message || {};
+    const answer = typeof msg.content === "string" ? msg.content.trim() : "";
+    return {
+      text: answer,
+      content: answer,
+      refused: !!msg.refusal || choice.finish_reason === "content_filter",
+      truncated: choice.finish_reason === "length",
+      usage: payload?.usage || null,
+      model: payload?.model || "",
+    };
+  }
+
   // Pesan error API -> kalimat untuk dokter (pure, diuji).
-  function aiErrorMessage(status, payload) {
+  function aiErrorMessage(status, payload, provider = "anthropic") {
     const msg = String(payload?.error?.message || "");
+    if (provider === "openai") {
+      const code = String(payload?.error?.code || payload?.error?.type || "");
+      if (status === 401) return "API key OpenAI salah atau sudah dicabut. Buka ⚙ dan tempel ulang API key OpenAI.";
+      if (/insufficient_quota|billing/i.test(code + " " + msg))
+        return "Saldo/kuota OpenAI habis. Isi saldo di platform.openai.com → Billing.";
+      if (status === 404 || /model_not_found|does not exist|do not have access/i.test(code + " " + msg))
+        return "Model ChatGPT ini tidak tersedia untuk API key Anda. Pilih model lain di ⚙.";
+      if (status === 429) return "Batas pemakaian OpenAI tercapai. Tunggu sebentar lalu coba lagi.";
+      if (status === 0) return "Tidak bisa menghubungi OpenAI. Periksa koneksi internet.";
+      if (status >= 500) return "Layanan OpenAI sedang sibuk. Coba lagi sebentar lagi.";
+      return `Permintaan ke OpenAI ditolak (${status})${msg ? `: ${msg}` : ""}.`;
+    }
     if (status === 401) return "API key salah atau sudah dicabut. Buka ⚙ Pengaturan dan tempel ulang API key.";
     if (status === 403) return "API key tidak punya izin memakai model ini. Cek di console.anthropic.com.";
     if (/credit balance|billing|purchase credits/i.test(msg))
@@ -5774,19 +5857,59 @@
 
   // API key disimpan di penyimpanan Violentmonkey (bukan localStorage situs,
   // supaya tidak bisa dibaca script Klinik Pintar).
-  let aiKeyMemory = "";
+  const aiKeyMemory = {};
   const aiStorageOk = () => typeof GM_getValue === "function" && typeof GM_setValue === "function";
-  function aiGetKey() {
+  function aiGetKey(store = AI_KEY_STORE) {
     try {
-      if (aiStorageOk()) return String(GM_getValue(AI_KEY_STORE, "") || "");
+      if (aiStorageOk()) return String(GM_getValue(store, "") || "");
     } catch (_) {}
-    return aiKeyMemory;
+    return aiKeyMemory[store] || "";
   }
-  function aiSetKey(key) {
-    aiKeyMemory = String(key || "").trim();
+  function aiSetKey(key, store = AI_KEY_STORE) {
+    aiKeyMemory[store] = String(key || "").trim();
     try {
-      if (aiStorageOk()) GM_setValue(AI_KEY_STORE, aiKeyMemory);
+      if (aiStorageOk()) GM_setValue(store, aiKeyMemory[store]);
     } catch (_) {}
+  }
+  const aiKeyStoreFor = (provider) => (provider === "openai" ? AI_OPENAI_KEY_STORE : AI_KEY_STORE);
+
+  function aiGetOpenAiModels() {
+    try {
+      if (aiStorageOk()) {
+        const list = JSON.parse(GM_getValue(AI_OPENAI_LIST_STORE, "null"));
+        if (Array.isArray(list) && list.length) return list;
+      }
+    } catch (_) {}
+    return aiChat.openaiModels?.length ? aiChat.openaiModels : OPENAI_DEFAULT_MODELS;
+  }
+  function aiSetOpenAiModels(list) {
+    aiChat.openaiModels = list;
+    try {
+      if (aiStorageOk()) GM_setValue(AI_OPENAI_LIST_STORE, JSON.stringify(list));
+    } catch (_) {}
+  }
+
+  // Daftar model dari akun OpenAI dokter. Gagal = daftar bawaan tetap dipakai.
+  function aiFetchOpenAiModels(apiKey) {
+    const gmx = typeof GM_xmlhttpRequest === "function" ? GM_xmlhttpRequest : null;
+    return new Promise((resolve) => {
+      if (!gmx) return resolve(null);
+      gmx({
+        method: "GET",
+        url: OPENAI_MODELS_URL,
+        headers: { authorization: `Bearer ${apiKey}` },
+        timeout: 30000,
+        onload: (r) => {
+          let payload = null;
+          try {
+            payload = JSON.parse(r.responseText || "null");
+          } catch (_) {}
+          resolve({ status: r.status, payload });
+        },
+        onerror: () => resolve({ status: 0, payload: null }),
+        ontimeout: () => resolve({ status: 0, payload: null }),
+      });
+    });
   }
 
   // POST lewat GM_xmlhttpRequest (tidak terhalang CSP/CORS situs).
@@ -5842,6 +5965,10 @@
   }
 
   async function aiAsk(messages, apiKey, model) {
+    if (aiProvider(model) === "openai") {
+      const r = await aiHttpPost(buildOpenAiRequest(messages, apiKey, model));
+      return parseOpenAiResponse(r.status, r.payload);
+    }
     let res = await aiHttpPost(buildAiRequest(messages, apiKey, { model }));
     // Bila akun belum mendukung model cadangan, ulangi tanpa fitur itu.
     if (res.status === 400 && /fallback/i.test(res.payload?.error?.message || ""))
@@ -5876,7 +6003,7 @@
   }
 
   // Percakapan disimpan di memori saja (hilang saat halaman dimuat ulang).
-  const aiChat = { messages: [], view: [], pageKey: "", busy: false, images: [], model: "", convModel: "", min: false, box: null };
+  const aiChat = { messages: [], view: [], pageKey: "", busy: false, images: [], model: "", convModel: "", min: false, box: null, openaiModels: null };
 
   const AI_QUICK_PROMPTS = [
     ["Diagnosis banding", "Apa diagnosis banding untuk pasien ini, dan pemeriksaan apa yang membedakannya?"],
@@ -5995,8 +6122,12 @@
     <div class="ak-ai-set-note">Buat di <a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noopener">console.anthropic.com → API Keys</a>, lalu tempel di sini. Disimpan di Violentmonkey pada perangkat ini saja.</div>
     <div class="ak-ai-set-row"><input type="password" class="ak-ai-key" placeholder="sk-ant-..." autocomplete="off" spellcheck="false"><button type="button" data-act="savekey">Simpan</button></div>
     <div class="ak-ai-set-row ak-ai-key-status"></div>
+    <div class="ak-ai-set-title">API key OpenAI (ChatGPT)</div>
+    <div class="ak-ai-set-note">Buat di <a href="https://platform.openai.com/api-keys" target="_blank" rel="noopener">platform.openai.com → API keys</a>, lalu tempel di sini. Disimpan di Violentmonkey pada perangkat ini saja.</div>
+    <div class="ak-ai-set-row"><input type="password" class="ak-ai-okey" placeholder="sk-..." autocomplete="off" spellcheck="false"><button type="button" data-act="saveokey">Simpan</button></div>
+    <div class="ak-ai-set-row ak-ai-okey-status"></div>
     <div class="ak-ai-set-title">Model (ganti model = percakapan baru)</div>
-    <div class="ak-ai-set-row"><select class="ak-ai-model">${AI_MODELS.map((m) => `<option value="${m.id}">${escapePreviewHtml(`${m.label} · ${m.hint}`)}</option>`).join("")}</select></div>
+    <div class="ak-ai-set-row"><select class="ak-ai-model"></select></div>
   </div>
   <div class="ak-ai-privacy">⚠ Dikirim ke AI di luar Klinik Pintar. Jangan tulis nama/NIK/No. RM pasien; data halaman disamarkan otomatis.</div>
   <div class="ak-ai-log" aria-live="polite"></div>
@@ -6023,6 +6154,8 @@
     const settings = $(".ak-ai-settings");
     const keyInput = $(".ak-ai-key");
     const keyStatus = $(".ak-ai-key-status");
+    const okeyInput = $(".ak-ai-okey");
+    const okeyStatus = $(".ak-ai-okey-status");
     const sendBtn = $(".ak-ai-send");
     const thumbs = $(".ak-ai-thumbs");
 
@@ -6031,9 +6164,16 @@
 
     const refreshKey = () => {
       const k = aiGetKey();
-      keyStatus.textContent = k ? `Tersimpan: ${maskApiKey(k)}` : "Belum ada API key.";
+      keyStatus.textContent = k ? `Tersimpan: ${maskApiKey(k)}` : "Belum ada API key Claude.";
       if (k) keyStatus.insertAdjacentHTML("beforeend", ' <button type="button" data-act="delkey">Hapus</button>');
-      if (!k) settings.hidden = false;
+      const ok = aiGetKey(AI_OPENAI_KEY_STORE);
+      okeyStatus.textContent = ok ? `Tersimpan: ${maskApiKey(ok)}` : "Belum ada API key OpenAI.";
+      if (ok)
+        okeyStatus.insertAdjacentHTML(
+          "beforeend",
+          ' <button type="button" data-act="delokey">Hapus</button> <button type="button" data-act="listokey" title="Ambil ulang daftar model dari akun OpenAI">↻ Model</button>',
+        );
+      if (!k && !ok) settings.hidden = false;
     };
     refreshKey();
 
@@ -6071,7 +6211,27 @@
     // terakhir dikembalikan ke kotak teks supaya bisa dibandingkan dengan model ini.
     const modelSelect = $(".ak-ai-model");
     const sub = $(".ak-ai-sub");
-    modelSelect.value = aiGetModel();
+    const fillModelOptions = () => {
+      const opt = (id, text) => `<option value="${escapePreviewHtml(id)}">${escapePreviewHtml(text)}</option>`;
+      modelSelect.innerHTML =
+        `<optgroup label="Claude (Anthropic)">${AI_MODELS.map((m) => opt(m.id, `${m.label} · ${m.hint}`)).join("")}</optgroup>` +
+        `<optgroup label="ChatGPT (OpenAI)">${aiGetOpenAiModels().map((id) => opt(id, id)).join("")}</optgroup>`;
+      const cur = aiGetModel();
+      if (![...modelSelect.options].some((o) => o.value === cur)) modelSelect.insertAdjacentHTML("beforeend", opt(cur, cur));
+      modelSelect.value = cur;
+    };
+    fillModelOptions();
+    const loadOpenAiModels = async (key) => {
+      const r = await aiFetchOpenAiModels(key);
+      const list = r?.status === 200 ? filterOpenAiChatModels((r.payload?.data || []).map((m) => m.id)) : [];
+      if (!list.length) {
+        if (r?.status === 401) notify("API key OpenAI ditolak (salah/dicabut).", "error", 8000);
+        return;
+      }
+      aiSetOpenAiModels(list);
+      fillModelOptions();
+      notify(`${list.length} model ChatGPT tersedia di ⚙ → Model.`, "success", 5000);
+    };
     sub.textContent = aiModelInfo(modelSelect.value).label;
     modelSelect.addEventListener("change", () => {
       if (aiChat.busy) return (modelSelect.value = aiGetModel());
@@ -6101,15 +6261,21 @@
       if (aiChat.busy) return;
       const question = input.value.trim();
       if (!question && !aiChat.images.length) return input.focus();
-      const apiKey = aiGetKey();
+      const model = aiGetModel();
+      const provider = aiProvider(model);
+      const apiKey = aiGetKey(aiKeyStoreFor(provider));
       if (!apiKey) {
         settings.hidden = false;
-        keyInput.focus();
-        return notify("Tempel API key Anthropic dulu (⚙ Pengaturan).", "warn", 7000);
+        (provider === "openai" ? okeyInput : keyInput).focus();
+        return notify(
+          provider === "openai" ? "Tempel API key OpenAI dulu (⚙ Pengaturan)." : "Tempel API key Anthropic dulu (⚙ Pengaturan).",
+          "warn",
+          7000,
+        );
       }
       const context = ctxCheck.checked ? readAiPatientDataFromPage() : "";
       const images = aiChat.images.slice();
-      aiChat.messages.push({ role: "user", content: buildAiUserContent(question, { context, images }) });
+      aiChat.messages.push({ role: "user", content: buildAiUserContent(question, { context, images, provider }) });
       aiChat.view.push({ role: "user", text: question, withContext: !!context, images: images.map((i) => i.url) });
       aiChat.images = [];
       input.value = "";
@@ -6119,7 +6285,6 @@
       sendBtn.disabled = true;
       renderLog();
       try {
-        const model = aiGetModel();
         aiChat.convModel = model;
         const res = await aiAsk(aiChat.messages, apiKey, model);
         if (!res.text) {
@@ -6185,6 +6350,20 @@
         aiSetKey("");
         return refreshKey();
       }
+      if (act === "saveokey") {
+        const k = okeyInput.value.trim();
+        if (!/^sk-/.test(k) || /^sk-ant-/.test(k)) return notify("API key OpenAI diawali sk-… (bukan sk-ant-, itu key Claude).", "warn", 7000);
+        aiSetKey(k, AI_OPENAI_KEY_STORE);
+        okeyInput.value = "";
+        refreshKey();
+        notify("API key OpenAI tersimpan. Mengambil daftar model…", "success", 4000);
+        return loadOpenAiModels(k);
+      }
+      if (act === "delokey") {
+        aiSetKey("", AI_OPENAI_KEY_STORE);
+        return refreshKey();
+      }
+      if (act === "listokey") return loadOpenAiModels(aiGetKey(AI_OPENAI_KEY_STORE));
       if (t.dataset.chip != null) {
         input.value = AI_QUICK_PROMPTS[Number(t.dataset.chip)][1];
         return input.focus();
@@ -6227,7 +6406,7 @@
         send();
       }
     });
-    if (aiGetKey()) input.focus();
+    if (aiGetKey() || aiGetKey(AI_OPENAI_KEY_STORE)) input.focus();
   }
 
   // ============================================================
@@ -6870,11 +7049,11 @@
     #ak-ai-panel .ak-ai-set-note a{color:#6d28d9!important;font-weight:700!important;text-decoration:underline!important;}
     #ak-ai-panel .ak-ai-set-row{display:flex!important;gap:6px!important;align-items:center!important;font:600 11px/1.4 ${AK_FONT}!important;color:#4c1d95!important;}
     #ak-ai-panel .ak-ai-set-row + .ak-ai-set-row,#ak-ai-panel .ak-ai-set-row + .ak-ai-set-title{margin-top:6px!important;}
-    #ak-ai-panel .ak-ai-key,#ak-ai-panel .ak-ai-model{flex:1!important;min-width:0!important;height:30px!important;padding:0 8px!important;border:1.5px solid #a78bfa!important;
+    #ak-ai-panel .ak-ai-key,#ak-ai-panel .ak-ai-okey,#ak-ai-panel .ak-ai-model{flex:1!important;min-width:0!important;height:30px!important;padding:0 8px!important;border:1.5px solid #a78bfa!important;
       border-radius:8px!important;background:#fff!important;font:500 12px ${AK_FONT}!important;color:#0f172a!important;}
     #ak-ai-panel .ak-ai-settings button{height:28px!important;padding:0 10px!important;border:0!important;border-radius:8px!important;
       background:#7c3aed!important;color:#fff!important;font:700 11.5px ${AK_FONT}!important;cursor:pointer!important;}
-    #ak-ai-panel .ak-ai-key-status button{height:24px!important;background:#fff!important;color:#7c3aed!important;border:1px solid #a78bfa!important;}
+    #ak-ai-panel .ak-ai-key-status button,#ak-ai-panel .ak-ai-okey-status button{height:24px!important;background:#fff!important;color:#7c3aed!important;border:1px solid #a78bfa!important;}
     #ak-ai-panel .ak-ai-privacy{padding:3px 10px!important;background:#fffbeb!important;border-bottom:1px solid #fde68a!important;
       font:600 10px/1.35 ${AK_FONT}!important;color:#92400e!important;}
     #ak-ai-panel .ak-ai-log{flex:1 1 auto!important;min-height:0!important;overflow:auto!important;padding:8px!important;display:flex!important;flex-direction:column!important;gap:7px!important;}
@@ -7042,6 +7221,10 @@
       buildAiRequest,
       parseAiResponse,
       aiErrorMessage,
+      buildOpenAiRequest,
+      parseOpenAiResponse,
+      filterOpenAiChatModels,
+      aiProvider,
       aiAnswerToHtml,
       maskApiKey,
       clampAiBox,
