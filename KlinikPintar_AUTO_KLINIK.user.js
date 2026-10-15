@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Klinik Pintar - AUTO KLINIK
 // @namespace    klinikpintar-auto
-// @version      10.11.0
+// @version      10.12.0
 // @description  AUTO KLINIK untuk os.klinikpintar.id — RESUME + DIAGNOSIS + RESEP, Resume, Paket Resep Golongan, Tanya AI. Tidak pernah menekan Simpan otomatis.
 // @author       taufanmtknight-debug
 // @match        https://os.klinikpintar.id/*
@@ -39,7 +39,7 @@
 
   // Versi diambil dari header (GM_info) agar label launcher tidak pernah beda
   // dengan @version. Nilai cadangan WAJIB sama dengan @version (dicek oleh test).
-  const SCRIPT_VERSION_FALLBACK = "10.11.0";
+  const SCRIPT_VERSION_FALLBACK = "10.12.0";
   const VERSION =
     (typeof GM_info !== "undefined" && GM_info?.script?.version) ||
     SCRIPT_VERSION_FALLBACK;
@@ -5586,11 +5586,85 @@
     });
   }
 
+  // v10.12.0: teks halaman pasien yang sedang dibuka, dengan identitas disamarkan
+  // (pure, diuji). Nilai di bawah/di samping label identitas (Nama, Pasien, Alamat,
+  // NIK, No. RM/HP/BPJS, email, tempat/tanggal lahir) diganti "[disamarkan]"; nama
+  // yang ditemukan juga disamarkan di seluruh teks. Pola NIK/BPJS (13–16 angka),
+  // No. HP, email, No. RM (huruf+angka, mis. MCS018662), dan tanggal lahir sebelum
+  // "(… tahun" juga disamarkan. Umur tetap dikirim.
+  const AI_ID_LABEL_RE =
+    /^(nama(\s+(pasien|lengkap|ibu|ayah|keluarga|penanggung\s*jawab|wali|panggilan))?|pasien|alamat(\s+\w+)?|nik|no\.?\s*(rm|rekam\s*medis|hp|telp|telepon|ktp|bpjs|kartu(\s+\w+)?|identitas|kk|peserta)|nomor\s+(rm|rekam\s*medis|hp|telepon|ktp|bpjs|kartu|identitas|peserta)|telepon|telp|no\.?\s*telp|email|e-mail|tempat\s*lahir|tanggal\s*lahir|tgl\.?\s*lahir|tempat,?\s*tanggal\s*lahir|penanggung\s*jawab|wali|pekerjaan)\s*:?\s*$/i;
+  const AI_NAME_LABEL_RE = /^(nama(\s+(pasien|lengkap|panggilan))?|pasien)\b/i;
+  const AI_PAGE_TEXT_MAX = 12000;
+  function redactPatientText(raw, { names = [] } = {}) {
+    const found = new Set(names.filter(Boolean));
+    const out = [];
+    let pending = null; // label identitas yang nilainya ada di baris berikut
+    for (const rawLine of String(raw || "").replace(/\u00a0/g, " ").split(/\r?\n/)) {
+      const line = rawLine.replace(/[ \t]+/g, " ").trim();
+      if (!line) {
+        if (out.length && out[out.length - 1] !== "") out.push("");
+        continue;
+      }
+      if (pending) {
+        if (AI_NAME_LABEL_RE.test(pending)) found.add(line);
+        out.push("[disamarkan]");
+        pending = null;
+        continue;
+      }
+      const inline = line.match(/^([^:]{2,40}?)\s*:\s*(.+)$/);
+      if (inline && AI_ID_LABEL_RE.test(inline[1])) {
+        if (AI_NAME_LABEL_RE.test(inline[1])) found.add(inline[2].trim());
+        out.push(`${inline[1]}: [disamarkan]`);
+      } else if (AI_ID_LABEL_RE.test(line)) {
+        out.push(line);
+        pending = line;
+      } else out.push(line);
+    }
+    let text = out.join("\n");
+    for (const name of [...found].sort((a, b) => b.length - a.length)) {
+      if (name.length < 3 || /\d/.test(name)) continue;
+      text = text.replace(new RegExp(name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "gi"), "[nama pasien]");
+    }
+    return text
+      .replace(/\b\d{13,16}\b/g, "[no. identitas]")
+      .replace(/(?:\+62|\b0)8\d{2}[-\s]?\d{3,4}[-\s]?\d{3,5}\b/g, "[no. HP]")
+      .replace(/[\w.+-]+@[\w-]+\.[\w.]+/g, "[email]")
+      .replace(/\b[A-Z]{2,6}[-.]?\d{5,}\b/g, "[No. RM]")
+      .replace(/\b\d{1,2}[\s/-](?:[A-Za-z]{3,9}|\d{1,2})[\s/-]\d{4}\s*(?=\(\s*\d+\s*(?:tahun|thn|bulan))/gi, "[tgl lahir] ")
+      .trim();
+  }
+
+  // Teks halaman yang terlihat, tanpa menu samping & UI Auto Klinik.
+  function readAiPageText() {
+    const root = document.querySelector("main") || document.body;
+    if (!root) return "";
+    let txt = root.innerText || root.textContent || "";
+    const skip = root.querySelectorAll('nav, aside, header, footer, [role="navigation"], #auto-klinik-box, [id^="ak-"], #ak-notify-stack');
+    for (const el of skip) {
+      const t = (el.innerText || "").trim();
+      if (t.length > 3) txt = txt.split(t).join("\n");
+    }
+    return txt;
+  }
+
+  // Data yang dikirim saat "Baca data pasien" dicentang: ringkasan klinis
+  // (rekam medis) + isi halaman yang terbuka, identitas disamarkan.
+  function readAiPatientDataFromPage() {
+    const parts = [];
+    const clinical = readAiClinicalContextFromPage();
+    if (clinical) parts.push(`Ringkasan dari form:\n${clinical}`);
+    let page = redactPatientText(readAiPageText());
+    if (page.length > AI_PAGE_TEXT_MAX) page = `${page.slice(0, AI_PAGE_TEXT_MAX)}\n[… dipotong]`;
+    if (page) parts.push(`Isi halaman yang sedang dibuka:\n${page}`);
+    return parts.join("\n\n");
+  }
+
   // Isi pesan dokter untuk API (pure, diuji).
   function buildAiUserContent(question, { context = "", images = [] } = {}) {
     const q = String(question || "").trim();
     const textPart = context
-      ? `Data klinis pasien saat ini (dari rekam medis, tanpa identitas):\n${context}\n\nPertanyaan dokter:\n${q}`
+      ? `Data pasien dari halaman Klinik Pintar yang sedang dibuka (identitas disamarkan):\n${context}\n\nPertanyaan dokter:\n${q}`
       : q;
     if (!images.length) return textPart;
     return [
@@ -5812,7 +5886,7 @@
 
   // v10.11.0: posisi & ukuran panel (digeser lewat judul, diubah lewat sudut kiri bawah)
   // disimpan di Violentmonkey supaya panel muncul di tempat terakhir.
-  const AI_BOX_STORE = "ak_ai_box";
+  const AI_BOX_STORE = "ak_ai_box2"; // v10.12.0: kunci baru agar lebar baru langsung dipakai
   function aiLoadBox() {
     try {
       if (aiStorageOk()) return JSON.parse(GM_getValue(AI_BOX_STORE, "null"));
@@ -5890,7 +5964,6 @@
     if (!aiChat.busy) aiChat.pageKey = pageKey;
     document.getElementById("ak-ai-panel")?.remove();
 
-    const onRecord = isMedicalRecordCreatePage();
     const panel = document.createElement("div");
     panel.id = "ak-ai-panel";
     panel.innerHTML = `
@@ -5911,11 +5984,11 @@
     <div class="ak-ai-set-title">Model (ganti model = percakapan baru)</div>
     <div class="ak-ai-set-row"><select class="ak-ai-model">${AI_MODELS.map((m) => `<option value="${m.id}">${escapePreviewHtml(`${m.label} · ${m.hint}`)}</option>`).join("")}</select></div>
   </div>
-  <div class="ak-ai-privacy">⚠ Dikirim ke AI di luar Klinik Pintar. Jangan tulis nama/NIK/No. RM pasien.</div>
+  <div class="ak-ai-privacy">⚠ Dikirim ke AI di luar Klinik Pintar. Jangan tulis nama/NIK/No. RM pasien; data halaman disamarkan otomatis.</div>
   <div class="ak-ai-log" aria-live="polite"></div>
   <div class="ak-ai-compose">
-    <div class="ak-ai-chips"><label class="ak-ai-ctx" title="Sertakan umur, BB, TTV, keluhan, diagnosis (tanpa nama/identitas)"><input type="checkbox" class="ak-ai-ctx-check"${onRecord ? "" : " disabled"}>📎 Data klinis</label>${AI_QUICK_PROMPTS.map(([l], i) => `<button type="button" data-chip="${i}">${escapePreviewHtml(l)}</button>`).join("")}</div>
-    <details class="ak-ai-ctx-preview" hidden><summary>Lihat data klinis yang dikirim</summary><pre></pre></details>
+    <div class="ak-ai-chips"><label class="ak-ai-ctx" title="Kirim data pasien di halaman ini (nama, NIK, No. RM, HP, alamat disamarkan)"><input type="checkbox" class="ak-ai-ctx-check">📎 Baca data pasien</label>${AI_QUICK_PROMPTS.map(([l], i) => `<button type="button" data-chip="${i}">${escapePreviewHtml(l)}</button>`).join("")}</div>
+    <details class="ak-ai-ctx-preview" hidden><summary>Lihat data yang dikirim (cek identitas sudah disamarkan)</summary><pre></pre></details>
     <div class="ak-ai-thumbs"></div>
     <div class="ak-ai-row">
       <textarea class="ak-ai-input" rows="1" placeholder="Tulis pertanyaan…"></textarea>
@@ -5956,12 +6029,12 @@
         ? aiChat.view
             .map((m, i) => {
               if (m.role === "user")
-                return `<div class="ak-ai-msg ak-ai-user">${m.images?.length ? `<div class="ak-ai-msg-imgs">${m.images.map((u) => `<img src="${u}" alt="">`).join("")}</div>` : ""}${escapePreviewHtml(m.text).replace(/\n/g, "<br>")}${m.withContext ? '<div class="ak-ai-tag">📎 data klinis disertakan</div>' : ""}</div>`;
+                return `<div class="ak-ai-msg ak-ai-user">${m.images?.length ? `<div class="ak-ai-msg-imgs">${m.images.map((u) => `<img src="${u}" alt="">`).join("")}</div>` : ""}${escapePreviewHtml(m.text).replace(/\n/g, "<br>")}${m.withContext ? '<div class="ak-ai-tag">📎 data pasien disertakan</div>' : ""}</div>`;
               if (m.role === "error") return `<div class="ak-ai-msg ak-ai-error">${escapePreviewHtml(m.text)}</div>`;
               return `<div class="ak-ai-msg ak-ai-bot">${aiAnswerToHtml(m.text)}${m.note ? `<div class="ak-ai-tag">${escapePreviewHtml(m.note)}</div>` : ""}${m.meta ? `<div class="ak-ai-meta">${escapePreviewHtml(m.meta)}</div>` : ""}<button type="button" class="ak-ai-copy" data-copy="${i}">Salin</button></div>`;
             })
             .join("")
-        : `<div class="ak-ai-empty">${notice ? `<b>${escapePreviewHtml(notice)}</b><br>` : ""}Tanyakan apa saja: diagnosis banding, dosis obat, interaksi, kriteria rujukan, edukasi pasien, atau kirim foto lesi/hasil lab.${onRecord ? "" : "<br><br>Data klinis pasien hanya bisa disertakan dari halaman Buat Rekam Medis."}</div>`;
+        : `<div class="ak-ai-empty">${notice ? `<b>${escapePreviewHtml(notice)}</b><br>` : ""}Tanyakan apa saja: diagnosis banding, dosis obat, interaksi, kriteria rujukan, edukasi pasien, atau kirim foto lesi/hasil lab.<br><br>Centang 📎 Baca data pasien agar AI ikut membaca data pasien di halaman ini.</div>`;
       if (aiChat.busy) log.insertAdjacentHTML("beforeend", '<div class="ak-ai-msg ak-ai-bot ak-ai-wait">AI sedang berpikir…</div>');
       scrollEnd();
     };
@@ -6002,9 +6075,9 @@
 
     const updateCtxPreview = () => {
       if (!ctxCheck.checked) return (ctxPreview.hidden = true);
-      const ctx = readAiClinicalContextFromPage();
+      const ctx = readAiPatientDataFromPage();
       ctxPreview.hidden = false;
-      ctxPreview.querySelector("pre").textContent = ctx || "(Belum ada data klinis yang terbaca di halaman ini.)";
+      ctxPreview.querySelector("pre").textContent = ctx || "(Belum ada data pasien yang terbaca di halaman ini.)";
     };
     ctxCheck.addEventListener("change", updateCtxPreview);
 
@@ -6020,7 +6093,7 @@
         keyInput.focus();
         return notify("Tempel API key Anthropic dulu (⚙ Pengaturan).", "warn", 7000);
       }
-      const context = ctxCheck.checked ? readAiClinicalContextFromPage() : "";
+      const context = ctxCheck.checked ? readAiPatientDataFromPage() : "";
       const images = aiChat.images.slice();
       aiChat.messages.push({ role: "user", content: buildAiUserContent(question, { context, images }) });
       aiChat.view.push({ role: "user", text: question, withContext: !!context, images: images.map((i) => i.url) });
@@ -6670,9 +6743,9 @@
     .ai-notify{font-size:13px!important;font-weight:600!important;}
 
     /* ---------- Tanya AI (panel mengambang; bisa digeser, diubah ukuran, diperkecil) ---------- */
-    /* v10.11.0: ukuran bawaan 60% dari v10.9 (lebar ±276 px / 60% layar HP, tinggi 30% layar). */
+    /* v10.11.0: ukuran 60% dari v10.9; v10.12.0: lebar +30% (±360 px / 78% layar HP), tinggi 30% layar. */
     #ak-ai-panel{position:fixed!important;top:8px!important;right:8px!important;bottom:auto!important;left:auto!important;z-index:2147483645!important;
-      width:min(276px,60vw)!important;height:30vh!important;min-width:200px!important;min-height:220px!important;
+      width:min(360px,78vw)!important;height:30vh!important;min-width:200px!important;min-height:220px!important;
       display:flex!important;flex-direction:column!important;overflow:hidden!important;background:#f8fafc!important;
       border:1px solid #94a3b8!important;border-radius:12px!important;box-shadow:0 12px 32px rgba(15,23,42,.28)!important;box-sizing:border-box!important;
       font:500 12.5px/1.45 ${AK_FONT}!important;color:#0f172a!important;}
@@ -6867,6 +6940,7 @@
       aiAnswerToHtml,
       maskApiKey,
       clampAiBox,
+      redactPatientText,
     });
     return;
   }
