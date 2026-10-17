@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Klinik Pintar - AUTO KLINIK
 // @namespace    klinikpintar-auto
-// @version      10.16.0
+// @version      10.17.0
 // @description  AUTO KLINIK untuk os.klinikpintar.id — RESUME + DIAGNOSIS + RESEP, Resume, Paket Resep Golongan, Tanya AI. Tidak pernah menekan Simpan otomatis.
 // @author       taufanmtknight-debug
 // @match        https://os.klinikpintar.id/*
@@ -41,7 +41,7 @@
 
   // Versi diambil dari header (GM_info) agar label launcher tidak pernah beda
   // dengan @version. Nilai cadangan WAJIB sama dengan @version (dicek oleh test).
-  const SCRIPT_VERSION_FALLBACK = "10.16.0";
+  const SCRIPT_VERSION_FALLBACK = "10.17.0";
   const VERSION =
     (typeof GM_info !== "undefined" && GM_info?.script?.version) ||
     SCRIPT_VERSION_FALLBACK;
@@ -92,7 +92,7 @@
       usageUnit: "OLES",
     },
     POT_PLASTIK: { keyword: "BPJS -- POT PLASTIK 30 CC", target: "BPJS -- POT PLASTIK 30 CC", unit: "pcs" },
-    CETIRIZINE_10: { keyword: "BPJS -- CETIRIZINE HCL 10 MG", target: "BPJS -- CETIRIZINE HCL 10 MG", unit: "tablet" },
+    CETIRIZINE_10: { keyword: "BPJS -- CETIRIZINE HCL 10 MG", target: "BPJS -- CETIRIZINE HCL 10 MG", unit: "tablet", ped: { mg: 10, perDay: 0.25 }, minAge: { years: 0.5, why: "belum dianjurkan" } },
     ANTASIDA_TABLET: { keyword: "BPJS -- ANTASIDA DOEN TABLET", target: "BPJS -- ANTASIDA DOEN TABLET", unit: "tablet" },
     PARACETAMOL_500: { keyword: "BPJS -- PARACETAMOL 500 MG", target: "BPJS -- PARACETAMOL 500 MG", unit: "tablet", ped: { mg: 500, perDose: 15, perDay: 60 } },
     DICLOFENAC_50: { keyword: "BPJS -- NATRIUM DICLOFENAC 50 MG", target: "BPJS -- NATRIUM DICLOFENAC 50 MG", unit: "tablet" },
@@ -120,9 +120,9 @@
     HANDSCOON_S: { keyword: "BPJS -- HANDSCOON S", target: "BPJS -- HANDSCOON S", unit: "pcs" },
     VITAMIN_B_COMPLEX: { keyword: "BPJS -- VITAMIN B COMPLEX", target: "BPJS -- VITAMIN B COMPLEX", unit: "tablet" },
     GUAIFENESIN_100: { keyword: "BPJS -- GUAIFENESIN 100 MG", target: "BPJS -- GUAIFENESIN 100 MG", unit: "kaplet", ped: { mg: 100, perDay: 12 } },
-    CTM_4: { keyword: "BPJS -- CTM 4 MG", target: "BPJS -- CTM 4 MG", unit: "tablet", ped: { mg: 4, perDay: 0.35 } },
+    CTM_4: { keyword: "BPJS -- CTM 4 MG", target: "BPJS -- CTM 4 MG", unit: "tablet", ped: { mg: 4, perDay: 0.35 }, minAge: { years: 2, why: "tidak dianjurkan (FDA: obat batuk-pilek)" } },
     ALPARA: { keyword: "BPJS -- ALPARA", target: "BPJS -- ALPARA", unit: "tablet" },
-    AMOXICILLIN_500: { keyword: "BPJS -- AMOXICILLIN 500 MG", target: "BPJS -- AMOXICILLIN 500 MG", unit: "tablet", ped: { mg: 500, perDay: 50 } },
+    AMOXICILLIN_500: { keyword: "BPJS -- AMOXICILLIN 500 MG", target: "BPJS -- AMOXICILLIN 500 MG", unit: "tablet", ped: { mg: 500, perDay: 50, infant: { underYears: 0.25, perDay: 30 } } },
     DOMPERIDONE_10: { keyword: "BPJS -- DOMPERIDONE 10 MG", target: "BPJS -- DOMPERIDONE 10 MG", unit: "tablet", ped: { mg: 10, perDose: 0.25, perDay: 0.75 } },
     DOMPERIDONE_SYRUP: {
       keyword: "BPJS -- DOMPERIDONE 5 MG/5ML SYRUP",
@@ -134,7 +134,7 @@
       keyword: "BPJS -- AMOXICILLIN TRIHYDRATE 125 MG/5ML SYRUP",
       target: "BPJS -- AMOXICILLIN TRIHYDRATE 125 MG/5ML SYRUP",
       unit: "bottle",
-      ped: { mgPerMl: 25, perDay: 50 },
+      ped: { mgPerMl: 25, perDay: 50, infant: { underYears: 0.25, perDay: 30 } },
     },
     CEFADROXIL_500: {
       keyword: "BPJS -- CEFADROXIL MONOHYDRATE 500 MG",
@@ -148,9 +148,10 @@
       unit: "bottle",
       ped: { mgPerMl: 25, perDay: 30 },
     },
-    RANITIDINE_HCL: { keyword: "BPJS -- RANITIDINE HCL", target: "BPJS -- RANITIDINE HCL", unit: "tablet" },
+    // v10.17.0: kekuatan dianggap 150 mg (Fornas tablet 150 mg).
+    RANITIDINE_HCL: { keyword: "BPJS -- RANITIDINE HCL", target: "BPJS -- RANITIDINE HCL", unit: "tablet", ped: { mg: 150, perDay: 4 } },
     AMBROXOL_30: { keyword: "BPJS -- AMBROXOL 30 MG", target: "BPJS -- AMBROXOL 30 MG", unit: "tablet", ped: { mg: 30, perDay: 1.6 } },
-    IBUPROFEN_400: { keyword: "BPJS -- IBUPROFEN 400 MG", target: "BPJS -- IBUPROFEN 400 MG", unit: "tablet", ped: { mg: 400, perDose: 10, perDay: 40 } },
+    IBUPROFEN_400: { keyword: "BPJS -- IBUPROFEN 400 MG", target: "BPJS -- IBUPROFEN 400 MG", unit: "tablet", ped: { mg: 400, perDose: 10, perDay: 40 }, minAge: { years: 0.5, why: "belum dianjurkan" } },
 
     // v10: obat standar FKTP, nama persis sudah dicocokkan dengan daftar "Cari Obat"
     // Klinik Pintar. Obat baru yang belum dicocokkan diberi verify: true (test
@@ -164,7 +165,7 @@
     CIPROFLOXACIN_500: { keyword: "BPJS -- CIPROFLOXACIN 500 MG", target: "BPJS -- CIPROFLOXACIN 500 MG", unit: "tablet" },
     METRONIDAZOLE_500: { keyword: "BPJS -- METRONIDAZOLE 500 MG", target: "BPJS -- METRONIDAZOLE 500 MG", unit: "tablet" },
     // v10.4.0: antivirus untuk varisela, herpes zoster, herpes simpleks (permintaan dokter).
-    ACYCLOVIR_400: { keyword: "BPJS -- ACYCLOVIR 400 MG", target: "BPJS -- ACYCLOVIR 400 MG", unit: "tablet" },
+    ACYCLOVIR_400: { keyword: "BPJS -- ACYCLOVIR 400 MG", target: "BPJS -- ACYCLOVIR 400 MG", unit: "tablet", minAge: { years: 0.25, why: "herpes bayi perlu acyclovir IV, pertimbangkan rujuk" } },
     ACYCLOVIR_SALEP: {
       keyword: "BPJS -- ACYCLOVIR 5GR SALEP",
       target: "BPJS -- ACYCLOVIR 5GR SALEP",
@@ -443,8 +444,15 @@
   // v10.5.0 (aturan dokter: dosis anak tidak pernah melebihi literatur, lebih baik
   // kurang sedikit). Jumlah UTUH maksimal untuk BB sebenarnya: tablet untuk seluruh
   // racikan (`count` bungkus) atau ml per kali untuk sirup. Infinity = tanpa batas data.
-  function pediatricMaxUnits(itemKey, weightKg, freq, count = 1) {
+  // v10.17.0: `infant` = batas lebih rendah untuk bayi muda (Amoxicillin <3 bulan: 30 mg/kg/hari).
+  function pedFor(itemKey, ageYears) {
     const ped = ITEMS[itemKey]?.ped;
+    if (!ped?.infant || !Number.isFinite(ageYears) || ageYears >= ped.infant.underYears) return ped;
+    return { ...ped, ...ped.infant };
+  }
+
+  function pediatricMaxUnits(itemKey, weightKg, freq, count = 1, ageYears = null) {
+    const ped = pedFor(itemKey, ageYears);
     if (!ped || !Number.isFinite(weightKg)) return Infinity;
     const perDose = Math.min(ped.perDose ?? Infinity, (ped.perDay ?? Infinity) / (Number(freq) || 1));
     if (!Number.isFinite(perDose)) return Infinity;
@@ -453,12 +461,23 @@
   }
 
   const fmtNum = (n) => String(Math.round(n * 100) / 100).replace(".", ",");
-  function pedLimitText(itemKey, freq) {
-    const ped = ITEMS[itemKey]?.ped || {};
+  function pedLimitText(itemKey, freq, ageYears = null) {
+    const ped = pedFor(itemKey, ageYears) || {};
     const perDose = Math.min(ped.perDose ?? Infinity, (ped.perDay ?? Infinity) / (Number(freq) || 1));
     return ped.perDay != null && (ped.perDose == null || ped.perDay / (Number(freq) || 1) <= ped.perDose)
       ? `${fmtNum(ped.perDay)} mg/kg/hari`
       : `${fmtNum(perDose)} mg/kg/kali`;
+  }
+
+  // v10.17.0: peringatan umur (jumlah tidak diubah; dokter yang memutuskan).
+  function formatAgeLimit(years) {
+    return years < 1 ? `${Math.round(years * 12)} bulan` : `${fmtNum(years)} tahun`;
+  }
+  function pedAgeNotes(itemKeys, ageYears) {
+    if (!Number.isFinite(ageYears)) return [];
+    return [...new Set(itemKeys)]
+      .filter((k) => ITEMS[k]?.minAge && ageYears < ITEMS[k].minAge.years)
+      .map((k) => `${ITEMS[k].target.replace(/^BPJS -- /, "")}: umur <${formatAgeLimit(ITEMS[k].minAge.years)} ${ITEMS[k].minAge.why}`);
   }
 
   const RACIKAN_TEMPLATES = {};
@@ -3811,7 +3830,7 @@
   }
 
   // Racikan (RACIKAN_TEMPLATES) berbasis BB.
-  function getWeightTemplate(prefix, weightKg) {
+  function getWeightTemplate(prefix, weightKg, ageYears = null) {
     const found = findWeightTemplate(RACIKAN_TEMPLATES, prefix, weightKg);
     if (!found) return null;
     const s = found.tpl.dosing;
@@ -3820,10 +3839,10 @@
       const doseNotes = [];
       const ingredients = found.tpl.ingredients.map((i) => {
         const band = Number(i.quantity);
-        const max = pediatricMaxUnits(i.item, weightKg, found.tpl.doseFreq, found.tpl.count);
+        const max = pediatricMaxUnits(i.item, weightKg, found.tpl.doseFreq, found.tpl.count, ageYears);
         if (max >= band) return i;
         doseNotes.push(
-          `${ITEMS[i.item].target.replace(/^BPJS -- /, "")}: ${max} tablet (bukan ${band}) agar ≤${pedLimitText(i.item, found.tpl.doseFreq)} untuk BB ${formatKg(weightKg)} kg`,
+          `${ITEMS[i.item].target.replace(/^BPJS -- /, "")}: ${max} tablet (bukan ${band}) agar ≤${pedLimitText(i.item, found.tpl.doseFreq, ageYears)} untuk BB ${formatKg(weightKg)} kg`,
         );
         return { ...i, quantity: String(max) };
       });
@@ -3845,17 +3864,17 @@
   }
 
   // Syrup non-racikan (RECIPE_TEMPLATES) berbasis BB.
-  function getWeightRecipeTemplate(prefix, weightKg) {
+  function getWeightRecipeTemplate(prefix, weightKg, ageYears = null) {
     const found = findWeightTemplate(RECIPE_TEMPLATES, prefix, weightKg);
     if (!found) return null;
     // v10.5.0: ml per kali dibatasi dosis maksimal literatur (lihat ITEMS.ped).
     const doseNotes = [];
     const medicines = found.tpl.medicines.map((m) => {
       const band = Number(m.dose);
-      const max = pediatricMaxUnits(m.item, weightKg, m.freq);
+      const max = pediatricMaxUnits(m.item, weightKg, m.freq, 1, ageYears);
       if (max >= band) return m;
       doseNotes.push(
-        `${ITEMS[m.item].target.replace(/^BPJS -- /, "")}: ${max} ml (bukan ${band} ml) agar ≤${pedLimitText(m.item, m.freq)} untuk BB ${formatKg(weightKg)} kg`,
+        `${ITEMS[m.item].target.replace(/^BPJS -- /, "")}: ${max} ml (bukan ${band} ml) agar ≤${pedLimitText(m.item, m.freq, ageYears)} untuk BB ${formatKg(weightKg)} kg`,
       );
       return { ...m, dose: String(max) };
     });
@@ -4454,9 +4473,14 @@
               note: `${item.label}: template racikan tidak tersedia`,
             };
       case "weight-racikan": {
-        const found = getWeightTemplate(item.prefix, weightKg);
+        const found = getWeightTemplate(item.prefix, weightKg, ageYears);
         return found
-          ? { medicines: [], racikans: [{ tpl: found.tpl }], doseNotes: found.tpl.doseNotes || [] }
+          ? {
+              medicines: [],
+              racikans: [{ tpl: found.tpl }],
+              doseNotes: found.tpl.doseNotes || [],
+              ageNotes: pedAgeNotes(found.tpl.ingredients.map((i) => i.item), ageYears),
+            }
           : {
               medicines: [],
               racikans: [],
@@ -4464,9 +4488,14 @@
             };
       }
       case "weight-syrup": {
-        const found = getWeightRecipeTemplate(item.prefix, weightKg);
+        const found = getWeightRecipeTemplate(item.prefix, weightKg, ageYears);
         return found
-          ? { medicines: [...(found.tpl.medicines || [])], racikans: [], doseNotes: found.tpl.doseNotes || [] }
+          ? {
+              medicines: [...(found.tpl.medicines || [])],
+              racikans: [],
+              doseNotes: found.tpl.doseNotes || [],
+              ageNotes: pedAgeNotes(found.tpl.medicines.map((m) => m.item), ageYears),
+            }
           : {
               medicines: [],
               racikans: [],
@@ -4556,6 +4585,7 @@
         continue;
       }
       for (const n of r.doseNotes || []) preview.notes.push(`Dosis dikurangi: ${n}`);
+      for (const n of r.ageNotes || []) preview.notes.push(`Perhatian umur: ${n}`);
       const meds = [];
       for (const m of r.medicines || []) {
         const id = identity(m, item.label);
