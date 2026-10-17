@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Klinik Pintar - AUTO KLINIK
 // @namespace    klinikpintar-auto
-// @version      10.17.0
+// @version      10.18.0
 // @description  AUTO KLINIK untuk os.klinikpintar.id — RESUME + DIAGNOSIS + RESEP, Resume, Paket Resep Golongan, Tanya AI. Tidak pernah menekan Simpan otomatis.
 // @author       taufanmtknight-debug
 // @match        https://os.klinikpintar.id/*
@@ -41,7 +41,7 @@
 
   // Versi diambil dari header (GM_info) agar label launcher tidak pernah beda
   // dengan @version. Nilai cadangan WAJIB sama dengan @version (dicek oleh test).
-  const SCRIPT_VERSION_FALLBACK = "10.17.0";
+  const SCRIPT_VERSION_FALLBACK = "10.18.0";
   const VERSION =
     (typeof GM_info !== "undefined" && GM_info?.script?.version) ||
     SCRIPT_VERSION_FALLBACK;
@@ -92,7 +92,7 @@
       usageUnit: "OLES",
     },
     POT_PLASTIK: { keyword: "BPJS -- POT PLASTIK 30 CC", target: "BPJS -- POT PLASTIK 30 CC", unit: "pcs" },
-    CETIRIZINE_10: { keyword: "BPJS -- CETIRIZINE HCL 10 MG", target: "BPJS -- CETIRIZINE HCL 10 MG", unit: "tablet", ped: { mg: 10, perDay: 0.25 }, minAge: { years: 0.5, why: "belum dianjurkan" } },
+    CETIRIZINE_10: { keyword: "BPJS -- CETIRIZINE HCL 10 MG", target: "BPJS -- CETIRIZINE HCL 10 MG", unit: "tablet", ped: { mg: 10, perDay: 0.25 }, minAge: { years: 0.5, why: "di luar izin edar (≥6 bulan); dosis tetap dibatasi 0,25 mg/kg/hari" } },
     ANTASIDA_TABLET: { keyword: "BPJS -- ANTASIDA DOEN TABLET", target: "BPJS -- ANTASIDA DOEN TABLET", unit: "tablet" },
     PARACETAMOL_500: { keyword: "BPJS -- PARACETAMOL 500 MG", target: "BPJS -- PARACETAMOL 500 MG", unit: "tablet", ped: { mg: 500, perDose: 15, perDay: 60 } },
     DICLOFENAC_50: { keyword: "BPJS -- NATRIUM DICLOFENAC 50 MG", target: "BPJS -- NATRIUM DICLOFENAC 50 MG", unit: "tablet" },
@@ -419,6 +419,10 @@
     { prefix: "BARU_AMOXICILLIN_", title: "AMOXICILLIN", name: "amoxicillin", maxKg: 40, duration: "3", doseFreq: "3", instruction: "setelah makan", items: ["AMOXICILLIN_500"] },
     { prefix: "BARU_CETIRIZINE_", title: "CETIRIZINE", name: "cetirizine", maxKg: 40, duration: "10", doseFreq: "1", instruction: "setelah makan", items: ["CETIRIZINE_10"] },
     { prefix: "BARU_BAPIL2_", title: "BAPIL 2", name: "batuk pilek 2", maxKg: 40, duration: "3", doseFreq: "3", instruction: "setelah makan", items: ["DEXAMETHASONE_05", "CTM_4", "AMBROXOL_30"] },
+    // v10.18.0 (permintaan dokter: batuk pilek bayi <6 bulan). Hanya Ambroxol: CTM/antihistamin,
+    // Guaifenesin, dan Dexamethasone tidak dianjurkan untuk batuk pilek bayi. Label Ambroxol
+    // <2 tahun: 7,5 mg 2x sehari; dibatasi 0,8 mg/kg/kali (1,6 mg/kg/hari), dibulatkan ke bawah.
+    { prefix: "BAPIL_BAYI_", title: "BAPIL BAYI", name: "batuk pilek bayi", step: 1, maxKg: 10, count: 10, mgPerKg: 0.8, tabletMg: 30, maxMg: 7.5, duration: "5", doseFreq: "2", instruction: "pagi dan sore", items: ["AMBROXOL_30"] },
     // v10.4.0 (permintaan dokter): Acyclovir anak hanya puyer, tablet 400 mg.
     // v10.4.3: jumlah obat untuk 3 hari dulu (permintaan dokter).
     // v10.4.4 (permintaan dokter): jumlah tablet dihitung dari BB SEBENARNYA dan dibulatkan ke
@@ -692,6 +696,14 @@
           type: "weight-racikan",
           prefix: "ISPA_ANAK_",
           title: "RACIKAN ISPA ANAK",
+          population: "child",
+        },
+        {
+          key: "BAPIL_BAYI",
+          label: "Racikan Batuk Pilek Bayi <6 bulan (Ambroxol, BB)",
+          type: "weight-racikan",
+          prefix: "BAPIL_BAYI_",
+          title: "RACIKAN BATUK PILEK BAYI",
           population: "child",
         },
         {
