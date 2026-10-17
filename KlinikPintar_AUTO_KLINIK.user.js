@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Klinik Pintar - AUTO KLINIK
 // @namespace    klinikpintar-auto
-// @version      10.18.0
+// @version      10.19.0
 // @description  AUTO KLINIK untuk os.klinikpintar.id — RESUME + DIAGNOSIS + RESEP, Resume, Paket Resep Golongan, Tanya AI. Tidak pernah menekan Simpan otomatis.
 // @author       taufanmtknight-debug
 // @match        https://os.klinikpintar.id/*
@@ -41,7 +41,7 @@
 
   // Versi diambil dari header (GM_info) agar label launcher tidak pernah beda
   // dengan @version. Nilai cadangan WAJIB sama dengan @version (dicek oleh test).
-  const SCRIPT_VERSION_FALLBACK = "10.18.0";
+  const SCRIPT_VERSION_FALLBACK = "10.19.0";
   const VERSION =
     (typeof GM_info !== "undefined" && GM_info?.script?.version) ||
     SCRIPT_VERSION_FALLBACK;
@@ -92,7 +92,7 @@
       usageUnit: "OLES",
     },
     POT_PLASTIK: { keyword: "BPJS -- POT PLASTIK 30 CC", target: "BPJS -- POT PLASTIK 30 CC", unit: "pcs" },
-    CETIRIZINE_10: { keyword: "BPJS -- CETIRIZINE HCL 10 MG", target: "BPJS -- CETIRIZINE HCL 10 MG", unit: "tablet", ped: { mg: 10, perDay: 0.25 }, minAge: { years: 0.5, why: "di luar izin edar (≥6 bulan); dosis tetap dibatasi 0,25 mg/kg/hari" } },
+    CETIRIZINE_10: { keyword: "BPJS -- CETIRIZINE HCL 10 MG", target: "BPJS -- CETIRIZINE HCL 10 MG", unit: "tablet", ped: { mg: 10, perDay: 0.25 }, minAge: { years: 0.5, why: "di luar izin edar (≥6 bulan), dosis tetap dibatasi" } },
     ANTASIDA_TABLET: { keyword: "BPJS -- ANTASIDA DOEN TABLET", target: "BPJS -- ANTASIDA DOEN TABLET", unit: "tablet" },
     PARACETAMOL_500: { keyword: "BPJS -- PARACETAMOL 500 MG", target: "BPJS -- PARACETAMOL 500 MG", unit: "tablet", ped: { mg: 500, perDose: 15, perDay: 60 } },
     DICLOFENAC_50: { keyword: "BPJS -- NATRIUM DICLOFENAC 50 MG", target: "BPJS -- NATRIUM DICLOFENAC 50 MG", unit: "tablet" },
@@ -417,12 +417,13 @@
     { prefix: "BARU_LAMBUNG_MUAL_", title: "LAMBUNG + MUAL", name: "lambung,mual", maxKg: 40, duration: "3", doseFreq: "3", instruction: "ac", items: ["ANTASIDA_TABLET", "RANITIDINE_HCL"] },
     { prefix: "BARU_MUAL_MUNTAH_", title: "MUAL MUNTAH BARU", name: "mual muntah", maxKg: 40, duration: "3", doseFreq: "3", instruction: "30 menit ac", items: ["DOMPERIDONE_10"] },
     { prefix: "BARU_AMOXICILLIN_", title: "AMOXICILLIN", name: "amoxicillin", maxKg: 40, duration: "3", doseFreq: "3", instruction: "setelah makan", items: ["AMOXICILLIN_500"] },
-    { prefix: "BARU_CETIRIZINE_", title: "CETIRIZINE", name: "cetirizine", maxKg: 40, duration: "10", doseFreq: "1", instruction: "setelah makan", items: ["CETIRIZINE_10"] },
+    { prefix: "BARU_CETIRIZINE_", title: "CETIRIZINE", name: "cetirizine", maxKg: 40, duration: "10", doseFreq: "1", instruction: "setelah makan", items: ["CETIRIZINE_10"], counts: [10, 15, 20] },
     { prefix: "BARU_BAPIL2_", title: "BAPIL 2", name: "batuk pilek 2", maxKg: 40, duration: "3", doseFreq: "3", instruction: "setelah makan", items: ["DEXAMETHASONE_05", "CTM_4", "AMBROXOL_30"] },
-    // v10.18.0 (permintaan dokter: batuk pilek bayi <6 bulan). Hanya Ambroxol: CTM/antihistamin,
-    // Guaifenesin, dan Dexamethasone tidak dianjurkan untuk batuk pilek bayi. Label Ambroxol
-    // <2 tahun: 7,5 mg 2x sehari; dibatasi 0,8 mg/kg/kali (1,6 mg/kg/hari), dibulatkan ke bawah.
-    { prefix: "BAPIL_BAYI_", title: "BAPIL BAYI", name: "batuk pilek bayi", step: 1, maxKg: 10, count: 10, mgPerKg: 0.8, tabletMg: 30, maxMg: 7.5, duration: "5", doseFreq: "2", instruction: "pagi dan sore", items: ["AMBROXOL_30"] },
+    // v10.18.0/v10.19.0 (permintaan dokter: batuk pilek bayi <6 bulan): Ambroxol + Cetirizine,
+    // 2x sehari. Ambroxol maks. 1,6 mg/kg/hari (label <2 tahun 7,5 mg 2x); Cetirizine maks.
+    // 0,25 mg/kg/kali 2x sehari (Simons dkk. 2003 bayi 6-11 bulan; ETAC). Tanpa CTM/Guaifenesin/Dexa.
+    // `counts`: BB kecil -> jumlah puyer diperbanyak (buat 14/20) agar 1 tablet tidak melebihi dosis.
+    { prefix: "BAPIL_BAYI_", title: "BAPIL BAYI", name: "batuk pilek bayi", maxKg: 10, duration: "5", doseFreq: "2", instruction: "pagi dan sore", items: ["AMBROXOL_30", "CETIRIZINE_10"], counts: [10, 14, 20], pedOverride: { CETIRIZINE_10: { perDay: 0.5 } } },
     // v10.4.0 (permintaan dokter): Acyclovir anak hanya puyer, tablet 400 mg.
     // v10.4.3: jumlah obat untuk 3 hari dulu (permintaan dokter).
     // v10.4.4 (permintaan dokter): jumlah tablet dihitung dari BB SEBENARNYA dan dibulatkan ke
@@ -455,8 +456,9 @@
     return { ...ped, ...ped.infant };
   }
 
-  function pediatricMaxUnits(itemKey, weightKg, freq, count = 1, ageYears = null) {
-    const ped = pedFor(itemKey, ageYears);
+  function pediatricMaxUnits(itemKey, weightKg, freq, count = 1, ageYears = null, override = null) {
+    const base = pedFor(itemKey, ageYears);
+    const ped = base && override?.[itemKey] ? { ...base, ...override[itemKey] } : base;
     if (!ped || !Number.isFinite(weightKg)) return Infinity;
     const perDose = Math.min(ped.perDose ?? Infinity, (ped.perDay ?? Infinity) / (Number(freq) || 1));
     if (!Number.isFinite(perDose)) return Infinity;
@@ -465,8 +467,8 @@
   }
 
   const fmtNum = (n) => String(Math.round(n * 100) / 100).replace(".", ",");
-  function pedLimitText(itemKey, freq, ageYears = null) {
-    const ped = pedFor(itemKey, ageYears) || {};
+  function pedLimitText(itemKey, freq, ageYears = null, override = null) {
+    const ped = { ...(pedFor(itemKey, ageYears) || {}), ...(override?.[itemKey] || {}) };
     const perDose = Math.min(ped.perDose ?? Infinity, (ped.perDay ?? Infinity) / (Number(freq) || 1));
     return ped.perDay != null && (ped.perDose == null || ped.perDay / (Number(freq) || 1) <= ped.perDose)
       ? `${fmtNum(ped.perDay)} mg/kg/hari`
@@ -501,6 +503,8 @@
         // Template rentang memakai batas bawah rentang; saat dipakai dihitung ulang dari BB.
         ingredients: s.items.map((item) => ({ item, quantity: String(s.mgPerKg ? Math.max(1, perKgQty(s, band.minKg)) : band.index) })),
         ...(s.mgPerKg ? { dosing: s } : {}),
+        ...(s.counts ? { counts: s.counts } : {}),
+        ...(s.pedOverride ? { pedOverride: s.pedOverride } : {}),
       };
     }
   }
@@ -700,7 +704,7 @@
         },
         {
           key: "BAPIL_BAYI",
-          label: "Racikan Batuk Pilek Bayi <6 bulan (Ambroxol, BB)",
+          label: "Racikan Batuk Pilek Bayi <6 bulan (Ambroxol + Cetirizine, BB)",
           type: "weight-racikan",
           prefix: "BAPIL_BAYI_",
           title: "RACIKAN BATUK PILEK BAYI",
@@ -1808,6 +1812,12 @@
   // Jika obat `when` disarankan, obat `drop` tidak disarankan (isi tumpang tindih).
   const ANAMNESIS_SUGGESTION_OVERLAPS = [
     {
+      // v10.19.0: Racikan Batuk Pilek Bayi sudah berisi Cetirizine.
+      when: "BAPIL_BAYI",
+      drop: ["CETIRIZINE_RACIKAN_BARU"],
+      note: "Racikan Cetirizine tidak dicentang karena Racikan Batuk Pilek Bayi sudah berisi Cetirizine",
+    },
+    {
       when: "ALPARA_DEWASA",
       drop: ["PARACETAMOL_DEWASA"],
       note: "Paracetamol tidak disarankan terpisah karena Alpara sudah mengandung paracetamol",
@@ -1853,7 +1863,7 @@
     { label: "Acyclovir", pattern: /a[cs][iy]?[ck]lovir\w*/,
       drop: ["ACYCLOVIR_800_DEWASA", "ACYCLOVIR_400_DEWASA", "ACYCLOVIR_PUYER_ANAK", "ACYCLOVIR_HSV_PUYER_ANAK", "ACYCLOVIR_SALEP"] },
     { label: "CTM/antihistamin", pattern: /\bctm\b|chlorphen\w*|klorfeni\w*|cetirizin\w*|loratadin\w*/,
-      drop: ["CTM_4_DEWASA", "CETIRIZINE_10_DEWASA", "LORATADINE_10_DEWASA", "CETIRIZINE_RACIKAN_BARU", "ALPARA_DEWASA", "ISPA_ANAK", "BAPIL_2_ANAK"] },
+      drop: ["CTM_4_DEWASA", "CETIRIZINE_10_DEWASA", "LORATADINE_10_DEWASA", "CETIRIZINE_RACIKAN_BARU", "ALPARA_DEWASA", "ISPA_ANAK", "BAPIL_2_ANAK", "BAPIL_BAYI"] },
   ];
   // v10.5.0: juga "alergi: amoxicillin" / "alergi obat: ...".
   const ALLERGY_CONTEXT = /alergi\s*(?::\s*)?(?:obat\s*:?\s*|terhadap\s+|dengan\s+)?(?:[a-z]+\s*,\s*|[a-z]+\s+(?:dan|&)\s+)*/g;
@@ -1868,6 +1878,8 @@
 
   // v10.2.1: dari obat satu golongan hanya SATU yang disarankan (yang disarankan
   // lebih dulu: diagnosis, lalu urutan aturan keluhan).
+  const INFANT_BAPIL_REPLACES = ["ISPA_ANAK", "BAPIL_2_ANAK"];
+
   const ANAMNESIS_SUGGESTION_CLASSES = [
     { label: "NSAID", keys: ["IBUPROFEN_400", "DICLOFENAC_50", "ASAM_MEFENAMAT_500_DEWASA"] },
     { label: "kortikosteroid", keys: ["DEXAMETHASONE_05", "METHYLPREDNISOLONE_4_DEWASA"] },
@@ -3848,18 +3860,30 @@
     const s = found.tpl.dosing;
     if (!s) {
       // v10.5.0: jumlah tablet rentang BB dibatasi dosis maksimal literatur (lihat ITEMS.ped).
-      const doseNotes = [];
-      const ingredients = found.tpl.ingredients.map((i) => {
-        const band = Number(i.quantity);
-        const max = pediatricMaxUnits(i.item, weightKg, found.tpl.doseFreq, found.tpl.count, ageYears);
-        if (max >= band) return i;
+      // v10.19.0: `counts` = jumlah puyer cadangan (mis. buat 20) bila BB terlalu kecil untuk
+      // 1 tablet per 10 puyer. Jumlah tablet rentang BB ikut diskalakan, lalu dibatasi lagi.
+      const t = found.tpl, freq = Number(t.doseFreq) || 1;
+      for (const count of t.counts || [t.count]) {
+        const doseNotes = [];
+        const ingredients = t.ingredients.map((i) => {
+          const band = Math.floor((Number(i.quantity) * count) / t.count + 1e-9);
+          const max = pediatricMaxUnits(i.item, weightKg, t.doseFreq, count, ageYears, t.pedOverride);
+          if (max >= band) return count === t.count ? i : { ...i, quantity: String(band) };
+          if (count === t.count)
+            doseNotes.push(
+              `${ITEMS[i.item].target.replace(/^BPJS -- /, "")}: ${max} tablet (bukan ${band}) agar ≤${pedLimitText(i.item, t.doseFreq, ageYears, t.pedOverride)} untuk BB ${formatKg(weightKg)} kg`,
+            );
+          return { ...i, quantity: String(max) };
+        });
+        if (ingredients.some((i) => Number(i.quantity) < 1)) continue; // BB terlalu kecil untuk count ini
+        if (count === t.count) return doseNotes.length ? { key: found.key, tpl: { ...t, ingredients, doseNotes } } : found;
+        const duration = String(Math.floor(count / freq));
         doseNotes.push(
-          `${ITEMS[i.item].target.replace(/^BPJS -- /, "")}: ${max} tablet (bukan ${band}) agar ≤${pedLimitText(i.item, found.tpl.doseFreq, ageYears)} untuk BB ${formatKg(weightKg)} kg`,
+          `${t.title}: buat ${count} (bukan ${t.count}), ${duration} hari, agar 1 tablet tidak melebihi dosis untuk BB ${formatKg(weightKg)} kg`,
         );
-        return { ...i, quantity: String(max) };
-      });
-      if (ingredients.some((i) => Number(i.quantity) < 1)) return null; // BB terlalu kecil
-      return doseNotes.length ? { key: found.key, tpl: { ...found.tpl, ingredients, doseNotes } } : found;
+        return { key: found.key, tpl: { ...t, ingredients, doseNotes, count, compoundInstruction: `buat ${count}`, duration } };
+      }
+      return null; // BB terlalu kecil
     }
     // v10.4.4: dosis per kg dihitung dari BB sebenarnya (bukan batas rentang).
     const n = perKgQty(s, weightKg);
@@ -4120,6 +4144,14 @@
       const k = group === "adult" ? "PARACETAMOL_DEWASA" : "PARACETAMOL_ANAK";
       result.matches.push({ label: "TTV: demam", keyword: `suhu ${String(vit.temp).replace(".", ",")} °C`, keys: [k], actions: [] });
       if (!result.keys.includes(k)) result.keys.push(k);
+    }
+
+    // v10.19.0 (permintaan dokter): bayi <6 bulan -> racikan batuk pilek ISPA/Bapil 2 diganti
+    // Racikan Batuk Pilek Bayi.
+    if (group === "child" && Number.isFinite(options.ageYears) && options.ageYears < 0.5) {
+      const swap = (k) => (INFANT_BAPIL_REPLACES.includes(k) ? "BAPIL_BAYI" : k);
+      result.keys = [...new Set(result.keys.map(swap))];
+      for (const match of result.matches) match.keys = [...new Set(match.keys.map(swap))];
     }
 
     for (const o of ANAMNESIS_SUGGESTION_OVERLAPS) {
@@ -5107,7 +5139,7 @@
       for (const k of autoAdded) selectedMedicationKeys.delete(k);
       autoAdded.clear();
       if (reset) dismissed.clear();
-      const s = suggestMedicationsFromAnamnesis(anamnesisEl.value, group, { diagnoses: presetDiagnoses, vitals: vitalsAssessment });
+      const s = suggestMedicationsFromAnamnesis(anamnesisEl.value, group, { diagnoses: presetDiagnoses, vitals: vitalsAssessment, ageYears });
       suggestedKeys = new Set(s.keys);
       // v10.5.0: obat berbasis umur yang tidak punya dosis untuk umur ini (mis. Antasida
       // anak <4 tahun) tetap ditandai saran, tetapi tidak dicentang.
